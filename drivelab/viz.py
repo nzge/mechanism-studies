@@ -401,3 +401,307 @@ def animate_capstan(r, stride=8, figsize=(9.5, 4.6), trail=60, dpi=72):
 
     plt.close(fig)
     return FuncAnimation(fig, frame, frames=len(idx), interval=40, blit=True)
+
+
+# ---------------------------------------------------------------------------
+# Geared-drive figures
+# ---------------------------------------------------------------------------
+
+def plot_ripple(drives, ax=None, input_revs=2.0):
+    """Kinematic error against input revolutions. Each technology has a
+    signature: the harmonic repeats twice per revolution, the cycloidal mixes
+    once-per-revolution eccentricity error with the pin-passing frequency, and
+    a capstan (or any friction drive) is flat."""
+    if ax is None:
+        _, ax = new_fig(figsize=(7.6, 3.8))
+    th = np.linspace(0.0, input_revs * 2.0 * math.pi, 2000)
+    for label, d in drives.items():
+        e = np.array([d.kinematic_error(t / d.N) for t in th])
+        ax.plot(th / (2.0 * math.pi), np.degrees(e) * 60.0, lw=1.6,
+                color=drive_color(label), label=label, zorder=3)
+    ax.axhline(0, color=GRID, lw=1, zorder=1)
+    style_axes(ax, "input revolutions", "transmission error [arcmin]",
+               "Kinematic error -- each drive's signature ripple")
+    ax.legend(frameon=False, fontsize=9, labelcolor=INK_MUTED, loc="upper right")
+    return ax
+
+
+def plot_harmonic_tradeoff(N=100.0, r_pitch=0.022, axes=None,
+                           published_band=(8.0e3, 15.0e3)):
+    """The harmonic's central design fact, in three panels: stiffness and
+    strength scale *together* with the cup wall (there is no geometric
+    conflict to trade against -- which is exactly why the package can be so
+    compact), and the price is paid elsewhere: in the wave-generator preload
+    drag, which climbs with the cube of the rim thickness.
+
+    The shaded band in the first panel is the class-typical published
+    stiffness for this size class. The derived model sits above it -- the
+    missing rim flexure documented in `harmonic.py` -- and showing the gap
+    beats hiding it."""
+    from .drives.harmonic import HarmonicDrive
+    from .catalog import ARMS
+    arm = ARMS["desktop-300"]
+    if axes is None:
+        _, axes = new_fig(1, 3, figsize=(11.5, 3.6))
+
+    ts = np.linspace(0.2e-3, 1.2e-3, 40)
+    K, tau = [], []
+    for t in ts:
+        d = HarmonicDrive(z_flex=int(2 * N), r_pitch=r_pitch,
+                          rim_width=8.0e-3, cup_wall=t,
+                          cup_length=0.9 * r_pitch, inertia_ref=arm.inertia)
+        K.append(d.stiffness_out(0.0))
+        tau.append(d.tau_max())
+
+    c = PALETTE["harmonic"]
+    axes[0].plot(ts * 1e3, np.array(K) / 1e3, lw=1.8, color=c, zorder=3)
+    axes[0].fill_between(ts * 1e3, published_band[0] / 1e3,
+                         published_band[1] / 1e3, color=INK_MUTED, alpha=0.18,
+                         zorder=1, label="published class band")
+    axes[0].legend(frameon=False, fontsize=9, labelcolor=INK_MUTED,
+                   loc="upper left")
+    style_axes(axes[0], "cup wall thickness [mm]", "K_out [kN*m/rad]",
+               "Stiffness follows the cup wall")
+
+    axes[1].plot(ts * 1e3, tau, lw=1.8, color=c, zorder=3)
+    axes[1].axhline(2.0 * arm.gravity_moment, color=INK_MUTED, lw=1.2,
+                    ls=":", zorder=2)
+    axes[1].text(ts[0] * 1e3, 2.0 * arm.gravity_moment * 1.08,
+                 "2x gravity load", fontsize=9, color=INK_MUTED)
+    style_axes(axes[1], "cup wall thickness [mm]", "tau_max [N*m]",
+               "Strength scales with stiffness -- no conflict")
+
+    tw = np.linspace(0.2e-3, 1.0e-3, 40)
+    drag = []
+    for t in tw:
+        d = HarmonicDrive(z_flex=int(2 * N), r_pitch=r_pitch,
+                          rim_width=8.0e-3, rim_wall=t, cup_wall=0.5e-3,
+                          cup_length=0.9 * r_pitch, inertia_ref=arm.inertia)
+        drag.append(d.N * 2.0 * d.mu_wg * d.preload_force * d.r_wg_bearing)
+    axes[2].plot(tw * 1e3, drag, lw=1.8, color=c, zorder=3)
+    style_axes(axes[2], "rim thickness [mm]", "no-load drag [N*m]",
+               "The preload tax: drag rises as t^3")
+    return axes
+
+
+def plot_cycloidal_tradeoff(N=30.0, r_pitch=0.030, axes=None):
+    """The cycloidal's scaling behaviour in three panels, sweeping the pin
+    ring radius at fixed ratio.
+
+    Unlike the capstan (which hits a hard bend-ratio cliff) the cycloidal
+    scales self-similarly: stiffness goes as the ring radius squared, strength
+    linearly, and the *package mass* quadratically. Nothing breaks -- the
+    drive just gets heavy, which is the honest reason compact cycloidals are
+    load-limited rather than geometry-limited."""
+    from .drives.cycloidal import CycloidalDrive
+    from .catalog import ARMS
+    arm = ARMS["desktop-300"]
+    if axes is None:
+        _, axes = new_fig(1, 3, figsize=(11.5, 3.6))
+
+    rs = np.linspace(0.015, 0.060, 40)
+    K, tau, mass = [], [], []
+    for r in rs:
+        # Ring pins cannot overlap; scale them with the ring so the sweep
+        # stays inside the geometrically possible.
+        r_pin = min(3.0e-3, 0.95 * r * math.sin(math.pi / (int(N) + 1)))
+        d = CycloidalDrive(z_pins=int(N) + 1, r_pitch=r, r_pin=r_pin,
+                           disc_width=10.0e-3, eccentricity=0.05 * r,
+                           n_out_pins=8, r_out_pin=2.5e-3,
+                           out_pin_length=15.0e-3, clearance=6.0e-6,
+                           preloaded=True, inertia_ref=arm.inertia)
+        K.append(d.stiffness_out(0.0))
+        tau.append(d.tau_max())
+        mass.append(d.disc_mass + d.cam_mass)
+
+    c = PALETTE["cycloidal"]
+    axes[0].plot(rs * 1e3, np.array(K) / 1e3, lw=1.8, color=c, zorder=3)
+    style_axes(axes[0], "pin ring radius [mm]", "K_out [kN*m/rad]",
+               "Stiffness grows with the ring")
+
+    axes[1].plot(rs * 1e3, tau, lw=1.8, color=c, zorder=3)
+    style_axes(axes[1], "pin ring radius [mm]", "tau_max [N*m]",
+               "Strength grows with the ring")
+
+    axes[2].plot(rs * 1e3, mass, lw=1.8, color=c, zorder=3)
+    style_axes(axes[2], "pin ring radius [mm]", "disc + cam mass [kg]",
+               "The cost: mass grows as r^2")
+    return axes
+
+
+# ---------------------------------------------------------------------------
+# Geared-drive animations
+# ---------------------------------------------------------------------------
+
+def animate_harmonic(r, stride=8, figsize=(9.5, 4.6), trail=60, dpi=72):
+    """Left: the mechanism -- circular spline ring, the flexspline drawn as
+    the wave generator's two-lobe ellipse, and the cam inside it. The ellipse
+    major axis turns once per input revolution (drawn at N times the motor
+    speed). Right: the arm. Windup drawn exaggerated, factor printed on the
+    figure, as with the capstan."""
+    from matplotlib.animation import FuncAnimation
+    from matplotlib.patches import Circle, Ellipse
+
+    cfg = r.cfg
+    drive = cfg.drive
+    rp = getattr(drive, "r_pitch", 0.022)
+    w0 = getattr(drive, "w0", 0.4e-3)
+    L = cfg.plant.length
+    N = drive.N
+
+    idx = np.arange(0, len(r.t), stride)
+    windup = r.windup
+    w_scale = 0.25 / max(np.max(np.abs(windup)), 1e-9)
+
+    fig, (axm, axa) = plt.subplots(1, 2, figsize=figsize, facecolor=SURFACE,
+                                   dpi=dpi,
+                                   gridspec_kw={"width_ratios": [1, 1.3]})
+
+    span = rp * 1.9
+    axm.set_xlim(-span, span)
+    axm.set_ylim(-span, span)
+    axm.set_aspect("equal")
+    axm.axis("off")
+    axm.set_title("harmonic  N = %.0f : 1" % N, color=INK, fontsize=11,
+                  loc="left")
+
+    axm.add_patch(Circle((0, 0), rp * 1.06, fill=False, ec=GRID, lw=2))
+    fs = Ellipse((0, 0), 2 * (rp + w0), 2 * (rp - w0), fill=False,
+                 ec=PALETTE["harmonic"], lw=2.0)
+    wg = Ellipse((0, 0), 2 * (rp + w0) * 0.62, 2 * (rp - w0) * 0.62,
+                 fill=True, fc=PALETTE["harmonic"], alpha=0.25, ec="none")
+    axm.add_patch(fs)
+    axm.add_patch(wg)
+    zone_a, = axm.plot([], [], "o", ms=7, color=INK)
+    zone_b, = axm.plot([], [], "o", ms=7, color=INK)
+    axm.text(0.02, 0.93, "windup drawn x%.0f" % w_scale,
+             transform=axm.transAxes, fontsize=8, color=INK_MUTED)
+
+    axa.set_xlim(-L * 1.25, L * 1.25)
+    axa.set_ylim(-L * 1.25, L * 1.25)
+    axa.set_aspect("equal")
+    axa.axis("off")
+    axa.set_title("lever arm", color=INK, fontsize=11, loc="left")
+    axa.plot([0], [0], "o", ms=7, color=GRID)
+    arm_line, = axa.plot([], [], lw=3, color=PALETTE["harmonic"],
+                         solid_capstyle="round")
+    tip, = axa.plot([], [], "o", ms=10, color=PALETTE["harmonic"])
+    trail_line, = axa.plot([], [], lw=1, color=PALETTE["harmonic"], alpha=0.25)
+    time_txt = axa.text(0.02, 0.02, "", transform=axa.transAxes, fontsize=9,
+                        color=INK_MUTED)
+
+    def frame(k):
+        i = idx[k]
+        th_in = r.theta_m[i] * N          # input (wave generator) angle
+        fs.angle = math.degrees(th_in)
+        wg.angle = math.degrees(th_in)
+        a = th_in
+        zone_a.set_data([rp * math.cos(a)], [rp * math.sin(a)])
+        zone_b.set_data([-rp * math.cos(a)], [-rp * math.sin(a)])
+
+        th_l = r.theta_l[i]
+        arm_line.set_data([0, L * math.cos(th_l)], [0, L * math.sin(th_l)])
+        tip.set_data([L * math.cos(th_l)], [L * math.sin(th_l)])
+        lo = max(0, i - trail * stride)
+        trail_line.set_data(L * np.cos(r.theta_l[lo:i + 1]),
+                            L * np.sin(r.theta_l[lo:i + 1]))
+        time_txt.set_text("t / t* = %.1f    wind = %.2f arcmin"
+                          % (r.t_hat[i], math.degrees(windup[i]) * 60))
+        return (fs, wg, zone_a, zone_b, arm_line, tip, trail_line, time_txt)
+
+    plt.close(fig)
+    return FuncAnimation(fig, frame, frames=len(idx), interval=40, blit=True)
+
+
+def animate_cycloidal(r, stride=8, figsize=(9.5, 4.6), trail=60, dpi=72):
+    """Left: the mechanism -- the pin ring, the orbiting disc (its centre
+    circles at N times the output speed on the eccentric cam), and the output
+    pin holes. Right: the arm. Windup drawn exaggerated, factor printed."""
+    from matplotlib.animation import FuncAnimation
+    from matplotlib.patches import Circle
+
+    cfg = r.cfg
+    drive = cfg.drive
+    rp = getattr(drive, "r_pitch", 0.030)
+    rd = getattr(drive, "disc_radius", rp * 0.75)
+    e = getattr(drive, "eccentricity", 0.0015)
+    ro = getattr(drive, "r_out_pitch", rp * 0.55)
+    L = cfg.plant.length
+    N = drive.N
+
+    idx = np.arange(0, len(r.t), stride)
+    windup = r.windup
+    w_scale = 0.25 / max(np.max(np.abs(windup)), 1e-9)
+
+    fig, (axm, axa) = plt.subplots(1, 2, figsize=figsize, facecolor=SURFACE,
+                                   dpi=dpi,
+                                   gridspec_kw={"width_ratios": [1, 1.3]})
+
+    span = rp * 1.55
+    axm.set_xlim(-span, span)
+    axm.set_ylim(-span, span)
+    axm.set_aspect("equal")
+    axm.axis("off")
+    axm.set_title("cycloidal  N = %.0f : 1" % N, color=INK, fontsize=11,
+                  loc="left")
+
+    axm.add_patch(Circle((0, 0), rp * 1.10, fill=False, ec=GRID, lw=2))
+    pins = []
+    for k in range(drive.z_pins):
+        ang = 2.0 * math.pi * k / drive.z_pins
+        pins.append(axm.add_patch(Circle((rp * math.cos(ang),
+                                          rp * math.sin(ang)),
+                                         drive.r_pin, fill=False,
+                                         ec=INK_MUTED, lw=1)))
+    disc = Circle((0, 0), rd, fill=False, ec=PALETTE["cycloidal"], lw=2.0)
+    axm.add_patch(disc)
+    holes = []
+    for k in range(drive.n_out_pins):
+        ang = 2.0 * math.pi * k / drive.n_out_pins
+        holes.append(Circle((0, 0), drive.r_out_pin + e, fill=False,
+                            ec=PALETTE["cycloidal"], lw=1))
+        axm.add_patch(holes[-1])
+    mark, = axm.plot([], [], lw=2, color=PALETTE["cycloidal"])
+    axm.text(0.02, 0.93, "windup drawn x%.0f" % w_scale,
+             transform=axm.transAxes, fontsize=8, color=INK_MUTED)
+
+    axa.set_xlim(-L * 1.25, L * 1.25)
+    axa.set_ylim(-L * 1.25, L * 1.25)
+    axa.set_aspect("equal")
+    axa.axis("off")
+    axa.set_title("lever arm", color=INK, fontsize=11, loc="left")
+    axa.plot([0], [0], "o", ms=7, color=GRID)
+    arm_line, = axa.plot([], [], lw=3, color=PALETTE["cycloidal"],
+                         solid_capstyle="round")
+    tip, = axa.plot([], [], "o", ms=10, color=PALETTE["cycloidal"])
+    trail_line, = axa.plot([], [], lw=1, color=PALETTE["cycloidal"],
+                           alpha=0.25)
+    time_txt = axa.text(0.02, 0.02, "", transform=axa.transAxes, fontsize=9,
+                        color=INK_MUTED)
+
+    def frame(k):
+        i = idx[k]
+        th_in = r.theta_m[i] * N          # cam angle at the input
+        cx, cy = e * math.cos(th_in), e * math.sin(th_in)
+        disc.center = (cx, cy)
+        th_d = r.theta_l[i]               # disc rotation ~ output angle
+        for h, ang in zip(holes, (2.0 * math.pi * j / drive.n_out_pins
+                                  for j in range(drive.n_out_pins))):
+            h.center = (cx + ro * math.cos(ang + th_d),
+                        cy + ro * math.sin(ang + th_d))
+        mark.set_data([cx, cx + rd * 0.7 * math.cos(th_d)],
+                      [cy, cy + rd * 0.7 * math.sin(th_d)])
+
+        th_l = r.theta_l[i]
+        arm_line.set_data([0, L * math.cos(th_l)], [0, L * math.sin(th_l)])
+        tip.set_data([L * math.cos(th_l)], [L * math.sin(th_l)])
+        lo = max(0, i - trail * stride)
+        trail_line.set_data(L * np.cos(r.theta_l[lo:i + 1]),
+                            L * np.sin(r.theta_l[lo:i + 1]))
+        time_txt.set_text("t / t* = %.1f    wind = %.2f arcmin"
+                          % (r.t_hat[i], math.degrees(windup[i]) * 60))
+        return tuple([disc, mark, arm_line, tip, trail_line, time_txt]
+                     + list(holes))
+
+    plt.close(fig)
+    return FuncAnimation(fig, frame, frames=len(idx), interval=40, blit=True)

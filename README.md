@@ -27,8 +27,8 @@ A simulation that compares drive technologies is worthless if its conclusions ar
 its inputs replayed. Three structural defences:
 
 1. **Parameters are derived where they can be.** Every drive carries a `physics_derived`
-   flag. `CapstanDrive` is derived from cable, radii and pretension. `GenericGearedDrive`
-   is a datasheet container and says so.
+   flag. `CapstanDrive`, `HarmonicDrive` and `CycloidalDrive` are derived from geometry,
+   material and tolerances. `GenericGearedDrive` is a datasheet container and says so.
 2. **Coupled quantities stay coupled.** Forward and backward efficiency are one knob, not
    two: `η_b = 2 − 1/η_f`, so `η_f = 0.5` is exactly the self-locking boundary.
    Backdrivability is an output of the model.
@@ -63,7 +63,10 @@ HANDOFF.md           the long version: rationale, findings, limitations, next st
 drivelab/
   drives/base.py     the two-port interface — implement this to add a drive
   drives/capstan.py  derived from geometry and material
+  drives/harmonic.py derived: tooth counts, flexspline cup, cam tolerance
+  drives/cycloidal.py derived: pin ring, output pins, fit tolerances
   drives/ideal.py    lossless references + datasheet-driven geared container
+  materials.py       isotropic material properties (shared by the geared drives)
   friction.py        LuGre (presliding) and regularized Coulomb
   plant.py  motor.py the lever arm and the motor
   scaling.py         non-dimensionalization, Π groups
@@ -82,17 +85,22 @@ its own directory because it is a genuinely different problem — see [foc/READM
 
 ### Validation
 
-`python tests/test_validation.py` — 15 known-answer checks. A rigid lossless drive must
+`python tests/test_validation.py` — 38 known-answer checks. A rigid lossless drive must
 reduce to a pendulum of inertia `J_l + N²J_m`; a lossless drive must conserve energy; the
 two-inertia resonance must land at `√(K(1/J_refl + 1/J_l))`; the capstan must match its
-closed forms. A bench that cannot reproduce the cases where the answer is already known
-has no business comparing the ones where it isn't.
+closed forms; and the harmonic and cycloidal must match theirs — tooth-count ratio, Bredt
+cup/cone stiffness, output-pin bending, backlash from clearance, ripple from tolerances.
+A bench that cannot reproduce the cases where the answer is already known has no business
+comparing the ones where it isn't.
 
 ### Running
 
 Needs numpy, scipy, matplotlib, pandas. Start with
 [notebooks/capstan_drive.ipynb](notebooks/capstan_drive.ipynb), then
-[HANDOFF.md](HANDOFF.md) for the reasoning, the findings and the known gaps.
+[notebooks/harmonic_drive.ipynb](notebooks/harmonic_drive.ipynb) and
+[notebooks/cycloidal_drive.ipynb](notebooks/cycloidal_drive.ipynb). The derived
+harmonic-vs-cycloidal comparison is summarized in [COMPARISON.md](COMPARISON.md); the
+full reasoning, findings and known gaps are in [HANDOFF.md](HANDOFF.md).
 
 ```bash
 python tests/test_validation.py
@@ -102,7 +110,9 @@ python tests/test_validation.py
 
 Nothing about fatigue life, thermal behaviour, tolerance stack-up, cost or
 manufacturability. It is a rigid-body-plus-one-compliance model of a single joint, with
-no failure model — T4 will happily report a harmonic drive transmitting 55× its rating.
-Harmonic and cycloidal parameters are currently datasheet-shaped rather than derived, so
-conclusions resting on their specific values inherit those figures' accuracy. Conclusions
-resting on `N²J_m` are robust, because that term is geometric.
+no failure model — T4 will happily report a harmonic drive transmitting ~40× its rating.
+The harmonic and cycloidal models are derived from geometry, but each leans on documented
+approximations — a fatigue-surrogate allowable, a rigid cycloidal disc, and (for the
+harmonic) a stiffness that omits radial rim flexure and lands above published figures —
+so conclusions resting on their specific values inherit those approximations. Conclusions
+resting on `N²J_m` and on the ratios are robust, because those are counting arguments.

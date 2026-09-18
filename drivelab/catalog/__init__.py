@@ -19,10 +19,11 @@ a documented SI quantity, so that is a five-minute job.
 from .motors import MOTORS
 from .cables import CABLES
 from .arms import ARMS
-from .configs import reference_capstan, REFERENCE_CONFIGS
+from .configs import (reference_capstan, reference_harmonic,
+                      reference_cycloidal, REFERENCE_CONFIGS)
 
 __all__ = ["MOTORS", "CABLES", "ARMS", "reference_capstan",
-           "REFERENCE_CONFIGS"]
+           "reference_harmonic", "reference_cycloidal", "REFERENCE_CONFIGS"]
 
 
 def describe(registry, name):

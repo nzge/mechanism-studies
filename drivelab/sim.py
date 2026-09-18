@@ -5,10 +5,17 @@ equations of motion at all -- it is folded into the reflected inertia and into
 how motor torque is reported. This is deliberate: it makes two drives with
 different ratios directly comparable on the same axes.
 
-    J_refl * w_m' = N*tau_m - tau_j - tau_loss
+    J_refl * w_m' = N*tau_m - (1 + de/dth)*tau_j - tau_loss
     J_l    * w_l' = tau_j + tau_gravity(th_l) - b_l*w_l + tau_ext
         tau_j     = spring(delta) + C*delta'
         delta     = th_m + e(th_m) - th_l - th_slip
+
+The (1 + de/dth) factor on the motor side is the transmission-error
+transformation: with theta_out = theta_m + e(theta_m), the spring torque
+referred back to the motor is tau_j * d(theta_out)/d(theta_m), exactly as for
+a cam follower. It is what keeps a lossless drive with kinematic error
+conserving energy; omitting it quietly injects or absorbs power at the ripple
+frequency. (e = 0 for the capstan and the ideal drives, so the factor is 1.)
 
 State vector (6):
     [ th_m_out, w_m_out, th_l, w_l, th_slip, z ]
@@ -25,6 +32,12 @@ from dataclasses import dataclass, field
 from scipy.integrate import solve_ivp
 
 from .drives.base import SLIP, BRISTLE
+
+# numpy 2 renamed trapz -> trapezoid; keep the bench running on both.
+try:
+    _trapz = np.trapezoid
+except AttributeError:      # numpy 1.x
+    _trapz = np.trapz
 
 TH_M, W_M, TH_L, W_L, TH_SLIP, Z = range(6)
 N_STATES = 6
@@ -204,7 +217,11 @@ def _rhs(t, x, cfg, controller, tau_ext, apply_motor_limit):
             tau_m = 0.0
 
     J_refl = cfg.reflected_inertia
-    dw_m = (drive.N * tau_m - tau_j - tau_loss
+    # The spring channel transforms by (1 + de) at the motor port -- see the
+    # module docstring. Skipping it breaks energy conservation for any drive
+    # with kinematic error.
+    de = drive.d_kinematic_error(x[TH_M])
+    dw_m = (drive.N * tau_m - tau_j * (1.0 + de) - tau_loss
             - motor.damping * drive.N ** 2 * x[W_M]) / J_refl
 
     ext = tau_ext(t, x[TH_L], x[W_L])
@@ -311,18 +328,18 @@ class SimResult:
 
     def energy_in(self):
         p = self.tau_m_out * self.omega_m
-        return float(np.trapz(np.maximum(p, 0.0), self.t))
+        return float(_trapz(np.maximum(p, 0.0), self.t))
 
     def energy_out(self):
-        return float(np.trapz(self.tau_j * self.omega_l, self.t))
+        return float(_trapz(self.tau_j * self.omega_l, self.t))
 
     def energy_lost(self):
-        return float(np.trapz(np.abs(self.tau_loss * self.omega_m), self.t))
+        return float(_trapz(np.abs(self.tau_loss * self.omega_m), self.t))
 
     def copper_loss(self):
         i2r = np.array([self.cfg.motor.copper_loss(tm)
                         for tm in self.channels["tau_m"]])
-        return float(np.trapz(i2r, self.t))
+        return float(_trapz(i2r, self.t))
 
     # ---- dimensionless views --------------------------------------------
 
@@ -390,13 +407,21 @@ def quasi_static_state(cfg, theta_l, omega_l=0.0, tau_ext=0.0):
     tau_g += tau_ext
     acc = tau_g / cfg.total_inertia
     tau_j = -cfg.reflected_inertia * acc
+    # With kinematic error, the motor port carries tau_j * (1 + de), so the
+    # quasi-static windup is slightly different from tau_j / K. The motor
+    # angle solves th_m = th_l + delta - e(th_m); iterate the fixed point a
+    # few times (e is arcminute-scale, so this converges immediately).
+    de = cfg.drive.d_kinematic_error(theta_l)
     K = cfg.drive.stiffness_out(0.0)
-    delta = tau_j / K if K > 0.0 else 0.0
+    delta = tau_j / (K * (1.0 + de)) if K > 0.0 else 0.0
+    th_m = theta_l + delta
+    for _ in range(3):
+        th_m = theta_l + delta - cfg.drive.kinematic_error(th_m)
 
     x = np.zeros(N_STATES)
     x[TH_L] = theta_l
     x[W_L] = omega_l
-    x[TH_M] = theta_l + delta - cfg.drive.kinematic_error(theta_l + delta)
+    x[TH_M] = th_m
     x[W_M] = omega_l
     return x
 

@@ -14,7 +14,10 @@ A simulation bench for comparing rotary drive transmissions — capstan, harmoni
 cycloidal — under identical, standardized tests, so that claims like "capstans are more
 backdrivable" become measurements rather than received wisdom.
 
-The first subject is the cable capstan drive, modelled from first principles.
+All three drives are now modelled from first principles: the capstan from cable and radii,
+the harmonic from tooth counts and the flexspline cup, the cycloidal from the pin ring and
+the output pins. Each model leans on documented approximations (see §8); the datasheet
+containers remain available as provenance checks.
 
 ### The question it was built to answer
 
@@ -70,6 +73,14 @@ Every drive carries a `physics_derived` flag.
 
 - `CapstanDrive` — **derived.** Ratio, stiffness, torque, stroke and drag all follow from
   cable, radii and pretension.
+- `HarmonicDrive` — **derived.** Ratio from tooth counts; stiffness from the flexspline
+  cup (Bredt); drag from the wave-generator preload; ripple from the cam runout tolerance;
+  loss from bearing and tooth friction. Known approximation: rim flexure is omitted, so
+  the stiffness lands above published figures — documented, not hidden.
+- `CycloidalDrive` — **derived.** Ratio from the pin count; stiffness from output-pin
+  bending plus Hertzian pin contact; backlash from the pin clearance; ripple from two
+  tolerances; loss from rolling, bearing and pin sliding. Known approximations: rigid
+  disc, cylinder-on-flat contact.
 - `GenericGearedDrive` — **not derived.** An honest container for published
   harmonic/cycloidal figures. Useful as a bench subject; proves nothing about mechanism.
 
@@ -115,13 +126,17 @@ claim the bench exists to test.
 
 ```
 README.md            short version
+COMPARISON.md        derived harmonic-vs-cycloidal findings, side by side
 HANDOFF.md           this file
 .gitignore
 
 drivelab/
   drives/base.py     THE INTERFACE — implement 5 methods to add a drive
   drives/capstan.py  derived from geometry and material
+  drives/harmonic.py derived: tooth counts, flexspline cup, cam tolerance
+  drives/cycloidal.py derived: pin ring, output pins, fit tolerances
   drives/ideal.py    lossless references (validation) + datasheet container
+  materials.py       isotropic material properties (shared by the geared drives)
   friction.py        LuGre (presliding) and regularized Coulomb
   plant.py           the lever arm — the common test load
   motor.py           inertia, torque ceiling, kt²/R short-circuit damping
@@ -134,12 +149,13 @@ drivelab/
   viz.py             plots (CVD-validated palette) and animation
 
 notebooks/
-  capstan_drive.ipynb    the deep dive — start here
-  cycloidal_drive.ipynb  empty placeholder
+  capstan_drive.ipynb     the deep dive — start here
+  harmonic_drive.ipynb    the derived harmonic study
+  cycloidal_drive.ipynb   the derived cycloidal study
 
 foc/                 separate domain, see foc/README.md
 tests/
-  test_validation.py 15 known-answer checks
+  test_validation.py 38 known-answer checks
 ```
 
 ### Why `notebooks/` and not a folder per drive
@@ -192,7 +208,7 @@ by default. An explicit solver will either crawl or lie.
 ## 6. Validation — and the bugs it caught
 
 ```bash
-python tests/test_validation.py    # 15/15
+python tests/test_validation.py    # 38/38
 ```
 
 | check | result |
@@ -204,6 +220,9 @@ python tests/test_validation.py    # 15/15
 | capstan closed forms, slip-before-slack | exact |
 | wrap saturation: 3→10 wraps gains <5% | +4.7% |
 | shorted motor resists backdriving more than free | confirmed |
+| harmonic: `N = z_f/(z_c−z_f)`, Bredt cup+cone, preload, ripple period, derived η | exact |
+| cycloidal: `N = z_p−1`, `F_max = 4τ/(z_p r_p)`, pin bending, backlash from clearance, Hertz limit, reflected inertia | exact |
+| derived drives conserve energy in their lossless limit | ~1e-9 relative drift |
 
 A bench that cannot reproduce cases where the answer is already known has no business
 comparing the ones where it isn't.
@@ -222,6 +241,16 @@ comparing the ones where it isn't.
    unbounded, so impacts pushed arbitrary torque through a "slipping" capstan.
 4. **The torque channel reported commanded, not delivered, torque** — ignoring motor
    saturation, and every derived quantity inherited the error.
+5. **The motor port dropped the transmission-error transformation.** With
+   `θ_out = θ_m + e(θ_m)`, the spring torque referred to the motor must carry the factor
+   `(1 + de/dθ)` — the cam-follower transformation. Without it, any drive with kinematic
+   error quietly injected or absorbed power at the ripple frequency; a lossless harmonic
+   drifted ~1e-4 in energy over 1.5 s instead of 1e-9. Found while adding the harmonic,
+   and invisible to every drive with `e = 0`.
+6. **Ring pins that could not fit.** The first cycloidal reference had 6 mm rollers on a
+   31-pin ring at 30 mm pitch radius — overlapping pins, drawn as if possible. The model
+   now rejects `r_pin > r_pitch·sin(π/z_p)` outright, and `sized_for` clamps to the
+   spacing.
 
 ### A metric that was removed on purpose
 
@@ -241,25 +270,33 @@ load, and honest `saturated` / `tracking_ok` flags.
 
 ## 7. What the bench has found so far
 
-Reference configuration: 300 mm arm, 0.5 kg payload, `bldc-frameless-60` motor.
+Reference configuration: 300 mm arm, 0.5 kg payload, `bldc-frameless-60` motor. **All three
+rows are derived models**, each sized to the arm from geometry and material — the capstan and
+harmonic by their strength sizing, the cycloidal by the control-stiffness floor (see result 5).
 
 | | capstan 7.7:1 | harmonic 100:1 | cycloidal 30:1 |
 |---|---|---|---|
-| Π_J (reflected inertia ratio) | **0.18** | **24.2** | 2.18 |
-| Ω_n | 51.8 | 64.3 | 108.7 |
-| η_f → η_b | 0.985 → 0.985 | 0.75 → 0.67 | 0.85 → 0.82 |
-| T1 lost motion [arcmin] | ~0 | ~0 | 1.5 |
-| T3 backdrive / mgL (open) | **0.33** | 3.87 | 0.78 |
-| T3 backdrive / mgL (shorted) | 0.41 | 6.90 | 1.56 |
-| T4 peak transmitted / mgL | **2.0** | **262** | 155 |
+| Π_J (reflected inertia ratio) | **0.18** | **24.5** | 2.26 |
+| Ω_n | 51.8 | 94.4 | 69.9 |
+| η_f → η_b | 0.985 → 0.985 | 0.778 → 0.714 | 0.957 → 0.955 |
+| T1 lost motion [arcmin] | ~0 | ~0 | 4.2 |
+| T2 rms error [arcmin] | 46 | 50 | 47 |
+| T3 backdrive / mgL (open) | **0.33** | 2.05 | 0.48 |
+| T3 backdrive / mgL (shorted) | 0.41 | 5.89 | 1.22 |
+| T4 peak transmitted / mgL | **2.0** | **397** | 98 |
 | T4 momentum from motor | **15%** | **96%** | 69% |
-| T5 resonance/antiresonance ratio | 2.57 | 1.02 | 1.21 |
+| T5 resonance/antiresonance ratio | 2.57 | 1.02 | 1.20 |
 
-### The four results
+(For comparison, the datasheet containers give: harmonic Π_J 24.2 / η 0.75→0.67 / T3 3.87 /
+T4 262; cycloidal Ω_n 108.7 / η 0.85→0.82 / T3 0.78 / T4 155. The derived models say the
+published figures were pessimistic about backdrivability — η_f 0.78 and 0.96 replace the
+assumed 0.75 and 0.85.)
+
+### The results
 
 **1. Reflected inertia is the dominant difference, by two orders of magnitude.**
-`Π_J = N²J_m/J_l` is 0.18 for the capstan against 24.2 for the 100:1 harmonic — same arm,
-same motor. Peak transmitted torque on impact differs ~130×. Nothing on a datasheet says
+`Π_J = N²J_m/J_l` is 0.18 for the capstan against 24.5 for the 100:1 harmonic — same arm,
+same motor. Peak transmitted torque on impact differs ~200×. Nothing on a datasheet says
 this, and it follows entirely from `N²`.
 
 **2. The capstan is a mechanical fuse.** Its impact peak landed at *exactly* 1.00× its
@@ -271,7 +308,8 @@ figure captures it.
 
 **3. The harmonic's resonance and antiresonance nearly coincide** — separation 1.02
 against the capstan's 2.57. With `Π_J ≫ 1` the two features collapse and the usable
-control-bandwidth window closes. Invisible in any static specification.
+control-bandwidth window closes. The separation depends on `Π_J` alone, so it is immune to
+the stiffness-approximation caveat in §8.
 
 **4. The capstan's binding constraint is geometric, not tribological.** Not efficiency,
 not torque density — **cable bend ratio**. Three quantities pull against each other:
@@ -279,6 +317,23 @@ torque wants a small capstan and high pretension; high pretension wants a thick 
 thick cable wants a *large* capstan to keep `D/d` healthy. For steel 7×19 on a 90 mm
 sector, useful single-stage `N` caps near **8**. This is why real capstan drives are
 bulkier than their torque rating suggests and why high-ratio ones are compounded.
+
+**5. The cycloidal is sized by the control loop, not by strength — derived, not asserted.**
+A Routh condition on the fixed-controller two-inertia loop puts the stiffness floor at
+`Ω_n ≈ 68` for the reference cycloidal; strength-only sizing lands at `Ω_n = 20`; catalog
+units sit at ~108. The steel between 20 and 68 is bought purely to close the loop. This is
+why cycloidal ratings always look oversized next to their joint loads, and it is derived
+live in `cycloidal_drive.ipynb`.
+
+**6. Backdrivability is now predicted for all three drives**, and the predictions are more
+backdrivable than the folklore: η_f = 0.78 (harmonic) and 0.96 (cycloidal) replace the
+datasheet containers' 0.75 and 0.85, with η_b following as `2 − 1/η_f`. The cycloidal — a
+*geared* drive — backdrives at 0.48 mgL open-circuit against the capstan's 0.33.
+
+**7. The harmonic has no stiffness-strength conflict — and that is why it is compact.**
+Stiffness and strength both scale with the cup wall; the price is paid elsewhere (preload
+drag ∝ rim thickness³, `N²J_m`, backdrivability). The cycloidal likewise scales smoothly,
+with no geometric cliff at all — its cost is mass and the stiffness floor.
 
 ### Where each wins
 
@@ -289,51 +344,65 @@ bulkier than their torque rating suggests and why high-ratio ones are compounded
 - **Harmonic** — enormous ratio in a small package, zero backlash. Pays in `N²J_m`, poor
   backdrivability, collapsed bandwidth window. Strongest where precision and ratio
   dominate and the joint will not be backdriven or struck.
-- **Cycloidal** — the middle position, with genuine backlash as the distinguishing cost.
+- **Cycloidal** — the middle position, with genuine backlash as the distinguishing cost —
+  backlash that is itself derived from the output-pin clearance, and deletable by
+  preloading. Also the most backdrivable geared drive here, per result 6.
 
 ---
 
 ## 8. Known limitations — read before quoting any result
 
-1. **Harmonic and cycloidal are datasheet containers, not derived models.** Conclusions
-   resting on their *specific* values inherit those figures' accuracy. Conclusions resting
-   on `N²J_m` are robust, because that term is geometric. **This is the single biggest
-   gap.**
-2. **The harmonic reference config saturates its motor** on T2 (`tracking_ok = False`).
-   That is itself a finding — a 100:1 harmonic is badly matched to a light desktop arm —
-   but the tracking column is not a tracking comparison. Either resize it or add an arm
-   where it is a fair fight.
-3. **No failure model.** T4 reports the harmonic transmitting ~55× its rating. In reality
-   something breaks first.
-4. **Catalog entries are representative archetypes**, sized from typical published figures
+1. **The harmonic stiffness omits radial rim flexure.** The derived cup+cone Bredt model
+   lands 2.7–5× *above* class-typical published figures for the same size class. The gap
+   is reported in the notebook and in `drives/harmonic.py`; conclusions resting on the
+   specific `K` inherit it. Conclusions resting on `Π_J`, on the ratios and on the T5
+   *separation* (which is `√(1 + 1/Π_J)` regardless of `K`) do not.
+2. **Fatigue surrogates.** Both geared drives use a reduced allowable stress plus a safety
+   factor in place of a fatigue limit. Real flexsplines and pins die of crack growth; this
+   bench has no fatigue model, so the *ratings* are geometry-scaled estimates, not service
+   life.
+3. **The cycloidal disc is rigid and the pin-ring contact is cylinder-on-flat.** Both are
+   documented approximations; the output pins dominate the stiffness anyway.
+4. **No failure model.** T4 reports the harmonic transmitting ~43× and the cycloidal ~12×
+   their ratings. In reality something breaks first.
+5. **The datasheet containers remain, and their old stories remain theirs.** The original
+   `harmonic_like` container (K = 7e3, η = 0.75, heavy drag) still saturates its motor on
+   T2 — that is a property of those assumed figures, not of the derived model, which
+   tracks at 50 arcmin. Keep the two sets of rows labelled.
+6. **Catalog entries are representative archetypes**, sized from typical published figures
    for their class, not transcriptions of any manufacturer's datasheet. Every field is a
    documented SI quantity — swapping in real values is a five-minute job and should be
    done before quoting anything about specific hardware.
-5. **Single joint, rigid link, one compliance.** No structural flexibility, no thermal
+7. **Single joint, rigid link, one compliance.** No structural flexibility, no thermal
    behaviour, no fatigue, no cable creep dynamics (the `creep_rate` field exists but is
-   not simulated).
-6. **Slip onset resolves one step late.** The slip criterion uses a provisional torque to
+   not simulated), no near-zero-load softening of the harmonic's hysteresis (K1 < K3 is a
+   measured property, not a geometric one).
+8. **Slip onset resolves one step late.** The slip criterion uses a provisional torque to
    keep the system explicit. Fine for the questions asked; would matter for detailed
    stick-slip work.
-7. **`GenericGearedDrive` backlash is a plain deadband.** Real backlash has impact
-   dynamics at re-engagement.
+9. **`GenericGearedDrive` backlash is a plain deadband** — and so is the cycloidal's
+   output-pin clearance. Real backlash has impact dynamics at re-engagement.
 
 ---
 
 ## 9. Next steps, in priority order
 
-1. **Derived harmonic and cycloidal models.** The big one. Tooth-mesh kinematics for
-   transmission error, flexspline compliance from geometry, load-dependent mesh friction.
-   Then the comparison is derived-to-derived and can speak to *mechanism* rather than to
-   specification. The interface is five methods.
-2. **A second reference arm** where the 100:1 harmonic is fairly matched, so T2 compares
-   tracking rather than saturation.
+1. **A shell model for harmonic rim flexure.** The single largest remaining approximation.
+   A ring-on-foundation or shell strip model for the toothed rim would close most of the
+   2.7–5× stiffness gap in §8.1; until then the derived harmonic's `K` is an upper bound.
+2. **A second reference arm** where the 100:1 harmonic's ratio is a fair match, so the
+   impact comparison stops being "the mismatched ratio" and becomes "the ratio you would
+   actually choose".
 3. **Two-stage capstan**, since §7.4 says that is what a real high-ratio design is.
 4. **Cable creep** — `CableMaterial.creep_rate` is populated but unused. Creep is
    pretension loss, which is torque-capacity loss, which is a genuine field failure mode.
 5. **A dedicated comparison notebook** in `notebooks/`, rather than the comparison living
-   at the end of the capstan notebook.
-6. Real datasheet values replacing the catalog archetypes.
+   inside each drive's study (and at the end of the capstan notebook).
+6. **Real datasheet values** replacing the catalog archetypes, now that the bench can
+   absorb them per-drive.
+7. **A bearing-life note for the cycloidal's eccentric orbit** — the bench currently
+   reports the orbit's inertia cost (~0.1% of `N²J_m`) but not its bearing fatigue cost,
+   which is where the cycloidal's vibration reputation actually lives.
 
 ---
 
@@ -357,9 +426,23 @@ bulkier than their torque rating suggests and why high-ratio ones are compounded
   hold the arm up, a drive under-rated for the load, a stroke limit shorter than the
   commanded motion, and a cable bend ratio below its minimum. All of these otherwise
   produce entirely plausible-looking plots.
+- **Ring pins cannot overlap.** `CycloidalDrive` raises unless
+  `r_pin ≤ r_pitch·sin(π/z_p)`; `sized_for` clamps. A 6 mm roller on a 31-pin, 30 mm
+  ring is impossible geometry, however natural it looks in a parameter list.
+- **A strength-sized cycloidal is closed-loop unstable.** With the fixed controller rule,
+  the two-inertia Routh condition demands `Ω_n ≳ 68` for the reference cycloidal
+  (`Π_J ≈ 2.26`, `ζ_d = 0.02`). Sizing one by strength alone gives `Ω_n ≈ 20` and T2
+  blows up at the internal-mode frequency — that is the finding of §7.5, not a bug. Use
+  `sized_for(..., min_stiffness=...)`.
 - **The notebook embeds its animation as base64.** `to_jshtml()` writes every frame into
   the file, so a committed notebook carries the animation as a blob and a fresh copy lands
-  in git history on every re-run. `stride` and `dpi` on `viz.animate_capstan` control this.
+  in git history on every re-run. `stride` and `dpi` on the `viz.animate_*` functions
+  control this.
+- **numpy ≥ 2.0 removed `np.trapz`.** `sim.py` and `bench/metrics.py` use a small
+  `_trapz` shim; keep it if you touch those files.
+- **The notebooks need the project venv.** `.venv/` (gitignored) was created with
+  numpy/scipy/matplotlib/pandas/nbclient/ipykernel/jinja2; execute the notebooks with
+  `.venv/bin/python` or install the same into your environment.
 - **Python 3.9 target.** No `match`, no `X | Y` unions.
 
 ---
@@ -371,8 +454,11 @@ python tests/test_validation.py
 ```
 
 ```bash
-jupyter lab notebooks/capstan_drive.ipynb
+jupyter lab notebooks/capstan_drive.ipynb          # the bench, the first study
+jupyter lab notebooks/harmonic_drive.ipynb         # the derived harmonic
+jupyter lab notebooks/cycloidal_drive.ipynb        # the derived cycloidal
 ```
 
 Needs numpy, scipy, matplotlib, pandas (and `control` is imported by the environment but
-the analytic FRF is hand-rolled, so it is not a hard dependency). No physics engine.
+the analytic FRF is hand-rolled, so it is not a hard dependency). No physics engine. The
+notebooks were executed with the project venv (`.venv/`, gitignored); see §10.

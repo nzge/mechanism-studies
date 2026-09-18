@@ -4,17 +4,20 @@ A comparison is only as good as its subjects. These exist so that "the capstan
 result" means one specific, inspectable, reproducible system rather than
 whatever parameters happened to be in a notebook cell.
 
-Provenance, again: the capstan entries are sized from first principles by
-`CapstanDrive.sized_for`. The harmonic and cycloidal entries are
-`GenericGearedDrive` containers holding class-typical *published* figures. Both
-are legitimate bench subjects, but only the first tells you anything about why
-the numbers are what they are.
+Provenance, again: the capstan, harmonic and cycloidal entries are sized from
+first principles by each drive's `sized_for` classmethod -- geometry, material
+and a torque requirement in, behaviour out. The `*_like` entries are
+`GenericGearedDrive` containers holding class-typical *published* figures.
+Both are legitimate bench subjects, but only the first tells you anything
+about why the numbers are what they are.
 """
 
 import math
 
 from ..config import Config
 from ..drives.capstan import CapstanDrive
+from ..drives.harmonic import HarmonicDrive
+from ..drives.cycloidal import CycloidalDrive
 from ..drives.ideal import GenericGearedDrive, CompliantIdealDrive
 from .motors import MOTORS
 from .cables import CABLES
@@ -88,6 +91,66 @@ def cycloidal_like(arm="desktop-300", motor="bldc-frameless-60", N=30.0,
     return Config(motor=m, drive=drive, plant=a, name=name)
 
 
+def reference_harmonic(arm="desktop-300", motor="bldc-frameless-60", N=100.0,
+                       r_pitch=0.022, torque_margin=2.0, name=None, **kw):
+    """A harmonic drive sized to the arm from first principles.
+
+    `HarmonicDrive.sized_for` inverts the flexspline cup's shear limit for the
+    wall thickness, so the resulting drive is the *thinnest* (and most
+    compliant) cup that still carries `torque_margin` times the arm's gravity
+    load. Everything else -- stiffness, wave-generator preload drag, the
+    2-per-revolution ripple, the derived efficiency -- follows from that one
+    decision.
+
+    Sized this way, the interesting fact is what does *not* scale down: the
+    wave-generator preload drag stays (the WG must deflect the rim whether the
+    cup is thick or thin), and N^2 J_m is untouched by the sizing at all.
+    """
+    a = ARMS[arm] if isinstance(arm, str) else arm
+    m = MOTORS[motor] if isinstance(motor, str) else motor
+    drive = HarmonicDrive.sized_for(
+        tau_required=torque_margin * a.gravity_moment,
+        N=N, r_pitch=r_pitch, inertia_ref=a.inertia,
+        name=name or ("harmonic-%.0f:1 (derived)" % N), **kw)
+    return Config(motor=m, drive=drive, plant=a,
+                  name=name or ("harmonic %.0f:1 on %s (derived)"
+                                % (drive.N, a.name)))
+
+
+def reference_cycloidal(arm="desktop-300", motor="bldc-frameless-60", N=30.0,
+                        r_pitch=0.030, torque_margin=2.0,
+                        omega_n_target=70.0, name=None, **kw):
+    """A cycloidal reducer sized to the arm from first principles.
+
+    `CycloidalDrive.sized_for` inverts the output pins' bending limit for the
+    pin radius, then grows the pin ring until the whole pack closes (the holes
+    inside the disc, the disc inside the ring). `omega_n_target` adds the
+    control-side requirement: the pins must reach an output stiffness of
+    Omega_n^2 * mgL even if strength alone would settle for thinner ones.
+
+    That second requirement is the finding this config exists to show. A
+    strength-only sizing leaves the cycloidal an order of magnitude too
+    compliant to track anything; and with the bench's fixed controller rule
+    (alpha = 2.5), the two-inertia loop goes *unstable* below Omega_n ~ 68
+    (a Routh condition on the loop, derived in the cycloidal notebook). Real
+    drives are built far stiffer than their load demands -- their catalog
+    ratings look "oversized" precisely because the binding requirement is
+    stiffness for control, not strength. `omega_n_target = 70` sits just
+    above that stability floor, which is the honest minimum, not a fudge.
+    """
+    a = ARMS[arm] if isinstance(arm, str) else arm
+    m = MOTORS[motor] if isinstance(motor, str) else motor
+    drive = CycloidalDrive.sized_for(
+        tau_required=torque_margin * a.gravity_moment,
+        N=N, r_pitch=r_pitch,
+        min_stiffness=omega_n_target ** 2 * a.gravity_moment,
+        inertia_ref=a.inertia,
+        name=name or ("cycloidal-%.0f:1 (derived)" % N), **kw)
+    return Config(motor=m, drive=drive, plant=a,
+                  name=name or ("cycloidal %.0f:1 on %s (derived)"
+                                % (drive.N, a.name)))
+
+
 def ideal_reference(arm="desktop-300", motor="bldc-frameless-60", N=8.0,
                     stiffness=1.0e4, name="ideal (lossless)"):
     """Lossless, backlash-free, no error. The control case -- every metric that
@@ -105,5 +168,7 @@ REFERENCE_CONFIGS = {
     "capstan": reference_capstan,
     "harmonic": harmonic_like,
     "cycloidal": cycloidal_like,
+    "harmonic-derived": reference_harmonic,
+    "cycloidal-derived": reference_cycloidal,
     "ideal": ideal_reference,
 }

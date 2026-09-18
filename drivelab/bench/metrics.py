@@ -8,6 +8,12 @@ one to check against a datasheet or a bench measurement.
 import math
 import numpy as np
 
+# numpy 2 renamed trapz -> trapezoid; keep the bench running on both.
+try:
+    _trapz = np.trapezoid
+except AttributeError:      # numpy 1.x
+    _trapz = np.trapz
+
 
 def _arcmin(rad):
     return math.degrees(rad) * 60.0
@@ -161,7 +167,7 @@ def t4_metrics(r):
     s_ = r.cfg.scales
 
     contact = np.abs(r.tau_ext) > 1e-9
-    impulse = (float(np.trapz(np.abs(r.tau_ext[contact]), r.t[contact]))
+    impulse = (float(_trapz(np.abs(r.tau_ext[contact]), r.t[contact]))
                if contact.any() else 0.0)
 
     # Momentum arriving at the wall, split into its two sources. The point of
