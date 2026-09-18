@@ -1,0 +1,995 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FOC Lab — PMSM Field-Oriented Control Simulator</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='0.9em' font-size='90'>⚡</text></svg>">
+<style>
+:root{
+  --bg:#070c16; --panel:#0d1524; --panel2:#111c30; --line:#1d2c47; --line2:#26395a;
+  --txt:#c9d8f0; --dim:#6f87ab; --acc:#22d3ee; --amber:#fbbf24;
+  --a:#ff5252; --b:#4caf50; --c:#3d8bff; --q:#22d3ee; --d:#f59e0b;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--bg);color:var(--txt);font:13px/1.45 system-ui,"Segoe UI",Roboto,sans-serif}
+header{display:flex;align-items:center;gap:14px;padding:9px 16px;background:linear-gradient(180deg,#0e1930,#0a1120);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:5}
+.brand{font-weight:700;font-size:15px;letter-spacing:.3px;color:#eaf2ff}
+.brand small{display:block;font-weight:400;color:var(--dim);font-size:11px}
+.hsp{flex:1}
+button{background:#132238;border:1px solid #2a4166;color:var(--txt);border-radius:6px;padding:5px 12px;cursor:pointer;font-size:12px;font-family:inherit}
+button:hover{border-color:var(--acc);color:#fff}
+button.primary{background:#0d4557;border-color:#1d7f9e;font-weight:600}
+button:active{transform:translateY(1px)}
+#statusbar{display:flex;justify-content:space-between;gap:16px;padding:4px 16px;background:#0a1120;border-bottom:1px solid var(--line);font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11.5px;color:var(--dim)}
+#status{color:#9fb6d8}
+#layout{display:flex;min-height:calc(100vh - 78px)}
+aside{width:332px;min-width:332px;border-right:1px solid var(--line);background:var(--panel);padding:12px;overflow-y:auto;max-height:calc(100vh - 78px);position:sticky;top:78px}
+main{flex:1;min-width:0;padding:12px;display:flex;flex-direction:column;gap:12px}
+#viz{display:flex;gap:12px}
+.cvw{flex:1;min-width:0;height:442px;background:var(--panel);border:1px solid var(--line);border-radius:10px;position:relative;overflow:hidden}
+.cvw canvas{position:absolute;inset:0;width:100%;height:100%}
+#flow{width:100%;height:auto;background:var(--panel);border:1px solid var(--line);border-radius:10px}
+#scopes{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.scvw{height:222px;background:var(--panel);border:1px solid var(--line);border-radius:10px;position:relative;overflow:hidden}
+.scvw canvas{position:absolute;inset:0;width:100%;height:100%}
+.scvw.wide{grid-column:1/-1;height:230px}
+#stats{display:flex;flex-wrap:wrap;gap:6px}
+.chip{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:3px 8px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;white-space:nowrap}
+.chip .lbl{color:var(--dim);margin-right:6px}
+.chip b{color:var(--acc);font-weight:600}
+.sec{margin-bottom:14px}
+.sec h3{margin:0 0 6px;font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--acc);border-bottom:1px solid var(--line);padding-bottom:4px}
+.row{display:flex;align-items:center;gap:8px;margin:4px 0}
+.row label{flex:0 0 96px;color:var(--dim);font-size:11.5px}
+.row input[type=range]{flex:1;min-width:50px;accent-color:var(--acc)}
+.row .val{flex:0 0 66px;text-align:right;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;color:var(--txt)}
+.row input[type=checkbox]{width:14px;height:14px;margin:0 2px}
+.btns{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
+.hint{color:var(--dim);font-size:11px;margin:4px 0 6px}
+#results{margin-top:6px}
+.res{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:11.5px}
+.res b{color:#eaf2ff}
+.res table{width:100%;border-collapse:collapse;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;margin-top:4px}
+.res td{padding:2px 4px;border-bottom:1px dashed #1b2a45}
+.res td:last-child{text-align:right}
+.ok{color:#4ade80}.err{color:#f87171}
+details{margin-top:6px}
+summary{cursor:pointer;color:var(--dim);font-size:11.5px}
+pre{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;color:var(--dim);background:#0a1120;border:1px solid var(--line);border-radius:6px;padding:8px;overflow-x:auto}
+@media (max-width:1100px){ #viz{flex-direction:column} .cvw{flex:none;height:380px} }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">⚡ FOC Lab <small>PMSM field-oriented control · classic motor tests · control-arm rig</small></div>
+  <div class="hsp"></div>
+  <button id="runBtn" class="primary">⏸ Pause</button>
+  <button id="rstBtn">↺ Reset</button>
+</header>
+<div id="statusbar"><span id="status">initializing…</span><span id="perf"></span></div>
+<div id="layout">
+  <aside id="panel"></aside>
+  <main>
+    <div id="viz">
+      <div class="cvw"><canvas id="arm"></canvas></div>
+      <div class="cvw"><canvas id="phasor"></canvas></div>
+    </div>
+    <svg id="flow" viewBox="0 0 1180 150" xmlns="http://www.w3.org/2000/svg"></svg>
+    <div id="scopes">
+      <div class="scvw"><canvas id="scI"></canvas></div>
+      <div class="scvw"><canvas id="scV"></canvas></div>
+      <div class="scvw"><canvas id="scDq"></canvas></div>
+      <div class="scvw"><canvas id="scT"></canvas></div>
+      <div class="scvw wide"><canvas id="scSpd"></canvas></div>
+    </div>
+    <div id="stats"></div>
+  </main>
+</div>
+<script>
+'use strict';
+/* ================================================================
+   CORE — motor physics, SVPWM, FOC cascade, test scripts.
+   DOM-free on purpose: unit-testable in Node (see tests below marker).
+   ================================================================ */
+
+const M = { Rs:.5, Ld:1.2e-3, Lq:1.2e-3, pp:4, lam:.045, J:.008, B:5e-4,
+            cog:.02, Tc:.02, mgl:.515, Vdc:24, fPWM:10000 };
+const C = { Kpi:1.2, Kii:500, Kps:.12, Kis:3, Kpp:5, Kpd:2, Imax:8, wmax:60, decouple:true };
+const P = { rate:1, lock:false, tdist:.3, distHold:false, distPulseEnd:-1,
+            vfV:8, vfF:15, iqRef:2, idRef:0, rpm:240, thDeg:90, bemfF:20, resV:2,
+            iqStepHi:5, stepEnd:-1 };
+const DT   = 2e-6;        // integration step (RK4)
+let   TICK = 1/M.fPWM;    // control / PWM period
+const PUSH = 5e-4;        // telemetry decimation
+
+let MODE = 'idle';        // idle | vf | cur | spd | pos | bemf | res
+const lastABC = { ia:0, ib:0, ic:0 };
+
+const S = { t:0, id:0, iq:0, wm:0, th:0, the:0,
+            vd:0, vq:0, va:0, vb:0, vc:0, vdCmd:0, vqCmd:0,
+            da:.5, db:.5, dc:.5, te:0, tl:0, tgrav:0, tcog:0, tcoul:0,
+            open:true, lock:false, sat:false,
+            intd:0, intq:0, intw:0, vfFnow:0,
+            nextTick:0, nextPush:0, script:null, status:'' };
+const REF = { id:0, iq:0, w:0, th:0 };
+const BU  = { t:[],ia:[],ib:[],ic:[],va:[],vb:[],vc:[],id:[],iq:[],vd:[],vq:[],
+              te:[],tl:[],tgrav:[],wm:[],th:[],wref:[],thref:[] };
+
+const fmt   = (v,d=2)=>{ if(!isFinite(v)) return '—'; const a=Math.abs(v);
+  if(a>=1000) return v.toFixed(0); if(a>=100) return v.toFixed(1);
+  if(a>=10) return v.toFixed(Math.max(1,d-1)); if(a>=1) return v.toFixed(d);
+  if(a===0) return '0'; return v.toPrecision(2); };
+const clamp = (v,a,b)=>Math.max(a,Math.min(b,v));
+const wrapPi= a=>((a+Math.PI)%(2*Math.PI)+2*Math.PI)%(2*Math.PI)-Math.PI;
+const mod2  = a=>((a%(2*Math.PI))+2*Math.PI)%(2*Math.PI);
+
+function distNow(){
+  if(P.distHold) return P.tdist;
+  return S.t < P.distPulseEnd ? P.tdist : 0;
+}
+
+/* ---- PMSM dq model + mechanical load (arm on the shaft) ---- */
+function deriv(y){
+  const id=y[0], iq=y[1], wm=y[2], th=y[3];
+  const we=M.pp*wm, the=mod2(M.pp*th);
+  const tgrav = M.mgl*Math.sin(th);            // arm gravity: non-control torque
+  const tcog  = M.cog*Math.sin(6*the);         // cogging (6th electrical harmonic)
+  const tcoul = M.Tc*Math.tanh(wm/0.5);        // coulomb friction, smoothed
+  const tdist = distNow();
+  const te = 1.5*M.pp*(M.lam*iq + (M.Ld-M.Lq)*id*iq);   // control (electromagnetic) torque
+  S.te=te; S.tl=tgrav+tcog+tcoul+tdist; S.tgrav=tgrav; S.tcog=tcog; S.tcoul=tcoul;
+  let did, diq;
+  if(S.open){
+    did=0; diq=0;                               // terminals open: currents collapse
+    S.va = -we*M.lam*Math.sin(the);             // display: back-EMF on the phases
+    S.vb = -we*M.lam*Math.sin(the-2*Math.PI/3);
+    S.vc = -we*M.lam*Math.sin(the+2*Math.PI/3);
+    S.vd = 0; S.vq = 0;
+  } else {
+    did = (S.vd - M.Rs*id + we*M.Lq*iq)/M.Ld;
+    diq = (S.vq - M.Rs*iq - we*(M.Ld*id + M.lam))/M.Lq;
+  }
+  const dwm = S.lock ? 0 : (te - M.B*wm - tgrav - tcog - tcoul - tdist)/M.J;
+  const dth = S.lock ? 0 : wm;
+  return [did, diq, dwm, dth];
+}
+
+function simStep(dt){
+  const y=[S.id,S.iq,S.wm,S.th];
+  const k1=deriv(y);
+  const y2=y.map((v,i)=>v+dt*0.5*k1[i]); const k2=deriv(y2);
+  const y3=y.map((v,i)=>v+dt*0.5*k2[i]); const k3=deriv(y3);
+  const y4=y.map((v,i)=>v+dt*k3[i]);      const k4=deriv(y4);
+  S.id = y[0]+dt/6*(k1[0]+2*k2[0]+2*k3[0]+k4[0]);
+  S.iq = y[1]+dt/6*(k1[1]+2*k2[1]+2*k3[1]+k4[1]);
+  S.wm = y[2]+dt/6*(k1[2]+2*k2[2]+2*k3[2]+k4[2]);
+  S.th = y[3]+dt/6*(k1[3]+2*k2[3]+2*k3[3]+k4[3]);
+  if(S.open){ S.id=0; S.iq=0; }
+  if(S.lock){ S.wm=0; S.th=0; }
+  S.t += dt;
+}
+
+function runSteps(n){
+  for(let i=0;i<n;i++){
+    simStep(DT);
+    if(S.t>=S.nextTick){ controlTick(); S.nextTick+=TICK; }
+    if(S.t>=S.nextPush){ pushTelemetry(); S.nextPush+=PUSH; }
+  }
+}
+
+/* ---- controllers ---- */
+function currentPI(idRef,iqRef){
+  const we=M.pp*S.wm;
+  const ed=idRef-S.id, eq=iqRef-S.iq;
+  let vdU=C.Kpi*ed+S.intd, vqU=C.Kpi*eq+S.intq;
+  if(C.decouple){ vdU-=we*M.Lq*S.iq; vqU+=we*(M.Ld*S.id+M.lam); }
+  let vd=vdU, vq=vqU;
+  const vmax=M.Vdc/Math.sqrt(3);
+  const vm=Math.hypot(vd,vq);
+  S.sat=false;
+  if(vm>vmax){ S.sat=true; const k=vmax/vm; vd*=k; vq*=k; }
+  const kb=C.Kii/Math.max(C.Kpi,1e-6);       // back-calculation anti-windup
+  S.intd+=TICK*(C.Kii*ed+kb*(vd-vdU));
+  S.intq+=TICK*(C.Kii*eq+kb*(vq-vqU));
+  S.intd=clamp(S.intd,-vmax,vmax); S.intq=clamp(S.intq,-vmax,vmax);
+  return {vd,vq};
+}
+
+function speedPI(wRef){
+  const e=wRef-S.wm;
+  S.intw+=TICK*C.Kis*e;
+  let u=C.Kps*e+S.intw;
+  const u0=u; u=clamp(u,-C.Imax,C.Imax);
+  S.intw+=TICK*(C.Kis/Math.max(C.Kps,1e-6))*(u-u0);
+  S.intw=clamp(S.intw,-C.Imax,C.Imax);
+  return u;
+}
+
+function posPI(thRef){
+  /* P on position error + D on measured speed (damping). The D term is what
+     lets the cascade hold near the inverted position: without it the Routh
+     condition a·b > c fails there (gravity stops restoring and becomes an
+     inverted-pendulum destabilizer). */
+  return clamp(C.Kpp*wrapPi(thRef-S.th) - C.Kpd*S.wm, -C.wmax, C.wmax);
+}
+
+function iqRefNow(){ return S.t<P.stepEnd ? P.iqStepHi : P.iqRef; }
+
+/* ---- space-vector PWM (midpoint-injected), star-connected motor ---- */
+/* NOTE: αβ is generated in the COMMANDED frame (S.the), but the motor dq
+   model lives in the ROTOR frame — so the final Park must use pp·θm.
+   The two frames coincide in closed-loop modes, which is what makes FOC work. */
+function applySVM(vd,vq){
+  const th=S.the;
+  const va0=vd*Math.cos(th)-vq*Math.sin(th);
+  const vb0=vd*Math.sin(th)+vq*Math.cos(th);
+  let va=va0, vb=-0.5*va0+Math.sqrt(3)/2*vb0, vc=-0.5*va0-Math.sqrt(3)/2*vb0;
+  const v0=-(Math.min(va,vb,vc)+Math.max(va,vb,vc))/2;
+  va+=v0; vb+=v0; vc+=v0;
+  const da=clamp(0.5+va/M.Vdc,.01,.99), db=clamp(0.5+vb/M.Vdc,.01,.99), dc=clamp(0.5+vc/M.Vdc,.01,.99);
+  const van=M.Vdc*(2*da-db-dc)/3, vbn=M.Vdc*(2*db-da-dc)/3, vcn=M.Vdc*(2*dc-da-db)/3;
+  S.da=da; S.db=db; S.dc=dc; S.va=van; S.vb=vbn; S.vc=vcn;
+  S.vdCmd=vd; S.vqCmd=vq;
+  const al=van, be=(vbn-vcn)/Math.sqrt(3);
+  const thR=mod2(M.pp*S.th);          // rotor electrical angle
+  S.vd=al*Math.cos(thR)+be*Math.sin(thR);
+  S.vq=-al*Math.sin(thR)+be*Math.cos(thR);
+}
+
+/* ---- per-mode control tick ---- */
+function controlTick(){
+  S.sat=false;
+  if(MODE==='idle'){ S.open=true; S.lock=P.lock; S.status='inverter off — terminals open (back-EMF measurable)'; return; }
+  if(MODE==='vf')  { vfTick(); return; }
+  if(MODE==='bemf'){ bemfTick(); return; }
+  if(MODE==='res') { resTick(); return; }
+  S.lock=P.lock;
+  S.the=mod2(M.pp*S.th);
+  if(MODE==='cur'){
+    REF.id=P.idRef; REF.iq=iqRefNow();
+    S.status='current (torque) control — iq*='+fmt(REF.iq,1)+' A';
+  } else if(MODE==='spd'){
+    REF.w=P.rpm*2*Math.PI/60;
+    REF.iq=speedPI(REF.w); REF.id=0;
+    S.status='speed control — ω*='+fmt(P.rpm,0)+' rpm';
+  } else if(MODE==='pos'){
+    REF.th=P.thDeg*Math.PI/180;
+    REF.w=posPI(REF.th);
+    REF.iq=speedPI(REF.w); REF.id=0;
+    S.status='position control — θ*='+fmt(P.thDeg,0)+'°';
+  } else { S.open=true; return; }
+  const r=currentPI(REF.id,REF.iq);
+  applySVM(r.vd,r.vq);
+  S.open=false;
+}
+
+/* open-loop V/Hz with soft ramp (pull-in behaviour emerges naturally) */
+function vfTick(){
+  const fT=P.vfF;
+  S.vfFnow += clamp(fT-S.vfFnow, -40*TICK, 40*TICK);
+  S.the = mod2(S.the + S.vfFnow*2*Math.PI*TICK);
+  const vmax=M.Vdc/Math.sqrt(3);
+  const vq=Math.min(vmax, 0.5 + P.vfV*(S.vfFnow/Math.max(P.vfF,0.1)));   // 0.5 V IR boost
+  S.lock=P.lock;
+  applySVM(0,vq); S.open=false;
+  S.status='open-loop V/Hz — '+fmt(S.vfFnow,1)+' Hz electrical, Vq='+fmt(vq,1)+' V';
+}
+
+/* ---- classic test 1: back-EMF constant (spin up, open terminals, measure) ---- */
+function bemfTick(){
+  let sc=S.script;
+  if(!sc){ sc=S.script={t0:S.t,phase:0,buf:[],vqHold:0}; }
+  const t=S.t-sc.t0;
+  const vmax=M.Vdc/Math.sqrt(3);
+  if(sc.phase===0){
+    const f=Math.min(P.bemfF, t/0.5*P.bemfF);
+    S.the=mod2(S.the+f*2*Math.PI*TICK);
+    const vq=Math.min(vmax, .6+f*(vmax-.6)/Math.max(P.bemfF,.1));
+    sc.vqHold=vq; applySVM(0,vq); S.open=false;
+    S.status='back-EMF test: spinning up to '+P.bemfF+' Hz…';
+    if(t>=0.55) sc.phase=1;
+  } else if(sc.phase===1){
+    S.the=mod2(S.the+P.bemfF*2*Math.PI*TICK);
+    applySVM(0,sc.vqHold); S.open=false;
+    S.status='back-EMF test: holding speed…';
+    if(t>=0.9) sc.phase=2;
+  } else if(sc.phase===2){
+    S.open=true;
+    const we=M.pp*S.wm, the=mod2(M.pp*S.th);
+    const vab=we*M.lam*(Math.sin(the-2*Math.PI/3)-Math.sin(the));
+    sc.buf.push({vab, wm:S.wm});
+    S.status='back-EMF test: terminals open — measuring EMF…';
+    if(t>=1.25){
+      const n=sc.buf.length; let s2=0, wm=0;
+      for(const b of sc.buf){ s2+=b.vab*b.vab; wm+=b.wm; }
+      const rms=Math.sqrt(s2/n), wmM=wm/n, we=M.pp*wmM;
+      finishBemf({ vll:rms, rpm:wmM*60/(2*Math.PI), we, lamEst:(rms*Math.SQRT2)/(Math.sqrt(3)*we) });
+      sc.phase=3;
+      S.status='back-EMF test: complete ✔';
+    }
+  } else { S.open=true; }
+}
+
+/* ---- classic test 2: winding resistance & inductance (DC step, locked rotor) ---- */
+function resTick(){
+  let sc=S.script;
+  if(!sc){ sc=S.script={t0:S.t,phase:0,buf:[]}; }
+  const t=S.t-sc.t0;
+  S.lock=true; S.the=0;
+  applySVM(P.resV,0); S.open=false;
+  sc.buf.push({t, id:S.id});
+  if(sc.phase===0){
+    S.status='resistance test: DC step applied to d-axis, locked rotor…';
+    if(t>=0.12) sc.phase=1;
+  } else if(sc.phase===1){
+    S.status='resistance test: measuring steady state…';
+    if(t>=0.18){
+      const n=sc.buf.length, k=30; let s=0;
+      for(let i=n-k;i<n;i++) s+=sc.buf[i].id;
+      const idss=s/k;
+      let t63=NaN;
+      for(const b of sc.buf){ if(b.id>=0.632*idss){ t63=b.t; break; } }
+      finishRes({ idss, RsEst:P.resV/idss, tau:t63, Lest:(P.resV/idss)*t63, Rll:2*P.resV/idss });
+      sc.phase=2; S.lock=false; sc.rel=true;
+      S.status='resistance test: complete ✔';
+    }
+  } else {
+    if(!sc.rel){ S.lock=false; sc.rel=true; }
+    S.open=true;
+  }
+}
+
+/* ---- telemetry buffers ---- */
+function pushTelemetry(){
+  const the=mod2(M.pp*S.th), c=Math.cos(the), s=Math.sin(the);
+  lastABC.ia=c*S.id-s*S.iq;
+  const c2=Math.cos(the-2*Math.PI/3), s2=Math.sin(the-2*Math.PI/3);
+  lastABC.ib=c2*S.id-s2*S.iq;
+  lastABC.ic=-lastABC.ia-lastABC.ib;
+  BU.t.push(S.t); BU.ia.push(lastABC.ia); BU.ib.push(lastABC.ib); BU.ic.push(lastABC.ic);
+  BU.va.push(S.va); BU.vb.push(S.vb); BU.vc.push(S.vc);
+  BU.id.push(S.id); BU.iq.push(S.iq); BU.vd.push(S.vdCmd); BU.vq.push(S.vqCmd);
+  BU.te.push(S.te); BU.tl.push(S.tl); BU.tgrav.push(S.tgrav);
+  BU.wm.push(S.wm); BU.th.push(S.th); BU.wref.push(REF.w); BU.thref.push(REF.th);
+  const cap=Math.ceil(2.2/PUSH)+8;
+  for(const k in BU){ const a=BU[k]; if(a.length>cap) a.splice(0,a.length-cap); }
+  if(typeof uiTelemetryHook==='function') uiTelemetryHook();   // UI scopes
+}
+
+function resetSim(){
+  S.t=0; S.id=0; S.iq=0; S.wm=0; S.th=0; S.the=0;
+  S.vd=0; S.vq=0; S.va=0; S.vb=0; S.vc=0; S.vdCmd=0; S.vqCmd=0;
+  S.da=.5; S.db=.5; S.dc=.5;
+  S.te=0; S.tl=0; S.tgrav=0; S.tcog=0; S.tcoul=0;
+  S.open=true; S.lock=false; S.sat=false;
+  S.intd=0; S.intq=0; S.intw=0; S.vfFnow=0;
+  S.nextTick=0; S.nextPush=0; S.script=null; S.status='';
+  P.distPulseEnd=-1; P.stepEnd=-1;
+  for(const k in BU) BU[k].length=0;
+}
+
+/* ================================================================
+   UI / DOM
+   ================================================================ */
+const $=s=>document.querySelector(s);
+const panel=$('#panel');
+
+function sec(title){ const d=document.createElement('div'); d.className='sec';
+  const h=document.createElement('h3'); h.textContent=title; d.appendChild(h);
+  const b=document.createElement('div'); b.className='body'; d.appendChild(b);
+  panel.appendChild(d); return b; }
+function row(parent){ const r=document.createElement('div'); r.className='row'; parent.appendChild(r); return r; }
+function btn(parent,label,fn,cls){ const b=document.createElement('button'); b.textContent=label;
+  if(cls) b.className=cls; b.addEventListener('click',fn); parent.appendChild(b); return b; }
+function chk(parent,label,val,fn){ const r=row(parent); const c=document.createElement('input');
+  c.type='checkbox'; c.checked=val; r.appendChild(c);
+  const l=document.createElement('label'); l.textContent=label; l.style.flex=1; r.appendChild(l);
+  c.addEventListener('change',()=>fn(c.checked)); return c; }
+function hint(parent,txt){ const p=document.createElement('div'); p.className='hint'; p.textContent=txt; parent.appendChild(p); return p; }
+function slider(parent,o){
+  const {label,min,max,val,fmt:fm=x=>fmt(x),log:lg=false,onInput}=o;
+  const r=row(parent);
+  const lab=document.createElement('label'); lab.textContent=label; r.appendChild(lab);
+  const inp=document.createElement('input'); inp.type='range'; inp.min='0'; inp.max='1000'; inp.step='1';
+  const map=v=>lg?Math.log(v/min)/Math.log(max/min):(v-min)/(max-min);
+  const unmap=p=>lg?min*Math.pow(max/min,p):min+p*(max-min);
+  inp.value=Math.round(map(val)*1000); r.appendChild(inp);
+  const out=document.createElement('span'); out.className='val'; out.textContent=fm(val); r.appendChild(out);
+  inp.addEventListener('input',()=>{ const v=unmap(+inp.value/1000); out.textContent=fm(v); if(onInput) onInput(v); });
+  return { set:v=>{ out.textContent=fm(v); inp.value=Math.round(map(v)*1000); } };
+}
+
+/* ---------- canvases ---------- */
+function prepCanvas(cv){
+  const o={cv,ctx:cv.getContext('2d'),w:0,h:0};
+  function rs(){ const r=cv.getBoundingClientRect(); const dpr=window.devicePixelRatio||1;
+    o.w=r.width; o.h=r.height;
+    cv.width=Math.max(1,Math.round(r.width*dpr)); cv.height=Math.max(1,Math.round(r.height*dpr));
+    o.ctx.setTransform(dpr,0,0,dpr,0,0); }
+  rs(); new ResizeObserver(rs).observe(cv);
+  return o;
+}
+
+/* ---------- scopes ---------- */
+class Scope{
+  constructor(cv,win,series,y0,y1){
+    this.o=prepCanvas(cv); this.win=win; this.series=series;
+    this.y0=y0; this.y1=y1;
+    this.cap=Math.ceil(win/PUSH)+8;
+    this.tarr=[]; series.forEach(s=>s.data=[]);
+  }
+  push(){ this.tarr.push(S.t);
+    for(const s of this.series){ s.data.push(s.get()); if(s.data.length>this.cap) s.data.splice(0,s.data.length-this.cap); }
+    if(this.tarr.length>this.cap) this.tarr.splice(0,this.tarr.length-this.cap); }
+  clear(){ this.tarr.length=0; this.series.forEach(s=>{ if(s.data) s.data.length=0; }); }
+  draw(){
+    const {ctx,w,h}=this.o; if(!w||!h) return;
+    ctx.clearRect(0,0,w,h);
+    ctx.fillStyle='#0a1120'; ctx.fillRect(0,0,w,h);
+    const ml=48, mr=this.y1?48:10, mt=20, mb=18, pw=w-ml-mr, ph=h-mt-mb;
+    if(pw<20||ph<20) return;
+    const t0=S.t-this.win, t1=S.t;
+    const X=t=>(t-t0)/this.win*pw+ml;
+    const grp=g=>this.series.filter(s=>s.axis===g);
+    const rng=g=>{ let mn=1e9,mx=-1e9;
+      for(const s of grp(g)) for(const v of s.data){ if(v<mn)mn=v; if(v>mx)mx=v; }
+      if(!isFinite(mn)){mn=-1;mx=1;}
+      if(mn===mx){mn-=1;mx+=1;}
+      const pad=(mx-mn)*0.08; return [mn-pad,mx+pad]; };
+    const Y=(v,r)=>mt+(r[1]-v)/(r[1]-r[0])*ph;
+    // grid + y labels (axis 0)
+    const r0=rng(0);
+    ctx.font='10px ui-monospace,monospace'; ctx.textAlign='right'; ctx.textBaseline='middle';
+    for(let i=0;i<=4;i++){ const v=r0[0]+(r0[1]-r0[0])*i/4, y=Y(v,r0);
+      ctx.strokeStyle='#12203a'; ctx.beginPath(); ctx.moveTo(ml,y); ctx.lineTo(w-mr,y); ctx.stroke();
+      ctx.fillStyle='#55688c'; ctx.fillText(fmt(v,1),ml-5,y); }
+    if(this.y0){ ctx.fillStyle='#7d92b5'; ctx.save(); ctx.translate(12,h/2); ctx.rotate(-Math.PI/2);
+      ctx.textAlign='center'; ctx.fillText(this.y0,0,0); ctx.restore(); }
+    // axis 1 grid (dashed) + labels
+    let r1=null;
+    if(this.y1){ r1=rng(1);
+      const Y1=v=>mt+(r1[1]-v)/(r1[1]-r1[0])*ph;
+      ctx.setLineDash([3,4]);
+      for(let i=0;i<=4;i++){ const v=r1[0]+(r1[1]-r1[0])*i/4, y=Y1(v);
+        ctx.strokeStyle='#12203a'; ctx.beginPath(); ctx.moveTo(ml,y); ctx.lineTo(w-mr,y); ctx.stroke();
+        ctx.fillStyle='#55688c'; ctx.textAlign='left'; ctx.fillText(fmt(v,1),w-mr+5,y); }
+      ctx.setLineDash([]);
+      ctx.fillStyle='#7d92b5'; ctx.save(); ctx.translate(w-12,h/2); ctx.rotate(Math.PI/2);
+      ctx.textAlign='center'; ctx.fillText(this.y1,0,0); ctx.restore(); }
+    // series
+    for(const s of this.series){
+      const r=s.axis===0?r0:r1, n=s.data.length;
+      if(n<2) continue;
+      ctx.strokeStyle=s.color; ctx.lineWidth=s.width||1.6; ctx.setLineDash(s.dash||[]);
+      ctx.beginPath();
+      for(let i=0;i<n;i++){ const x=X(this.tarr[i]), y=Y(s.data[i],r);
+        if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y); }
+      ctx.stroke(); ctx.setLineDash([]);
+    }
+    // legend
+    let lx=ml+8, ly=mt+2;
+    ctx.textAlign='left';
+    ctx.font='10.5px ui-monospace,monospace';
+    for(const s of this.series){
+      const v=s.data.length?s.data[s.data.length-1]:0;
+      const txt=`${s.name} ${fmt(v,2)}`;
+      ctx.fillStyle=s.color; ctx.fillText(txt,lx,ly+8);
+      lx+=ctx.measureText(txt).width+14;
+      if(lx>w-mr-60){ lx=ml+8; ly+=14; }
+    }
+  }
+}
+
+const scopes=[
+  new Scope($('#scI'),0.5,[
+    {name:'ia',color:'#ff5252',axis:0,get:()=>lastABC.ia},
+    {name:'ib',color:'#4caf50',axis:0,get:()=>lastABC.ib},
+    {name:'ic',color:'#3d8bff',axis:0,get:()=>lastABC.ic}],'phase current (A)',null),
+  new Scope($('#scV'),0.5,[
+    {name:'va',color:'#ff5252',axis:0,get:()=>S.va},
+    {name:'vb',color:'#4caf50',axis:0,get:()=>S.vb},
+    {name:'vc',color:'#3d8bff',axis:0,get:()=>S.vc}],'phase voltage (V)',null),
+  new Scope($('#scDq'),0.5,[
+    {name:'id',color:'#f59e0b',axis:0,get:()=>S.id},
+    {name:'iq',color:'#22d3ee',axis:0,get:()=>S.iq},
+    {name:'iq*',color:'#22d3ee',axis:0,dash:[5,4],width:1,get:()=>REF.iq},
+    {name:'id*',color:'#f59e0b',axis:0,dash:[5,4],width:1,get:()=>REF.id}],'dq current (A)',null),
+  new Scope($('#scT'),0.8,[
+    {name:'Te control',color:'#ff5252',axis:0,get:()=>S.te},
+    {name:'TL non-control',color:'#60a5fa',axis:0,get:()=>S.tl},
+    {name:'Tgrav',color:'#60a5fa',axis:0,dash:[5,4],width:1,get:()=>S.tgrav}],'torque (N·m)',null),
+  new Scope($('#scSpd'),2.0,[
+    {name:'θm',color:'#fbbf24',axis:0,get:()=>S.th*180/Math.PI},
+    {name:'θ*',color:'#fbbf24',axis:0,dash:[5,4],width:1,get:()=>REF.th*180/Math.PI}],
+    'position (°)','speed (rpm)')
+];
+scopes[4].series.push(
+  {name:'ωm',color:'#22d3ee',axis:1,data:[],get:()=>S.wm*60/(2*Math.PI)},
+  {name:'ω*',color:'#7dd3fc',axis:1,dash:[5,4],width:1,data:[],get:()=>REF.w*60/(2*Math.PI)});
+function uiTelemetryHook(){ scopes.forEach(s=>s.push()); }
+
+/* ---------- control arm animation ---------- */
+const armO=prepCanvas($('#arm'));
+function drawArm(){
+  const {ctx,w,h}=armO; if(!w||!h) return;
+  ctx.clearRect(0,0,w,h);
+  ctx.fillStyle='#0a1120'; ctx.fillRect(0,0,w,h);
+  const hx=w*0.5, hy=h*0.60;
+  const armLen=clamp(Math.min(h*0.42,w*0.46),120,260);
+  const th=S.th;
+  const dirX=Math.sin(th), dirY=Math.cos(th);
+  // wall mount
+  ctx.fillStyle='#16233c'; ctx.fillRect(hx-44,hy-36,16,72);
+  ctx.fillStyle='#26395a';
+  [[hx-36,hy-24],[hx-36,hy+0],[hx-36,hy+24]].forEach(p=>{ctx.beginPath();ctx.arc(p[0],p[1],3,0,7);ctx.fill();});
+  // stator ring with 3 phase segments
+  const rS=30;
+  ctx.lineCap='round';
+  const phases=[['ia',0],['ib',2*Math.PI/3],['ic',4*Math.PI/3]];
+  ctx.strokeStyle='rgba(120,150,200,0.14)'; ctx.lineWidth=11;
+  for(let k=0;k<3;k++){ const a0=k*2*Math.PI/3;
+    ctx.beginPath(); ctx.arc(hx,hy,rS,a0+0.18,a0+2*Math.PI/3-0.18); ctx.stroke(); }
+  for(const [key,base] of phases){
+    const v=key==='ia'?lastABC.ia:key==='ib'?lastABC.ib:lastABC.ic;
+    const col=v>=0?'255,82,82':'77,124,255';
+    ctx.strokeStyle=`rgba(${col},${clamp(Math.abs(v)/5,0.06,1)})`;
+    ctx.beginPath(); ctx.arc(hx,hy,rS,base+0.18,base+2*Math.PI/3-0.18); ctx.stroke();
+  }
+  // rotor with pp pole pairs
+  ctx.beginPath(); ctx.arc(hx,hy,15,0,7); ctx.fillStyle='#131c2e'; ctx.fill();
+  ctx.strokeStyle='#2a4166'; ctx.lineWidth=1; ctx.stroke();
+  for(let i=0;i<8;i++){
+    const a0=-mod2(M.pp*S.th)+i*Math.PI/4;
+    ctx.beginPath(); ctx.moveTo(hx,hy); ctx.arc(hx,hy,15,a0,a0+Math.PI/4); ctx.closePath();
+    ctx.fillStyle=i%2?'#f59e0b':'#131c2e'; ctx.fill();
+  }
+  ctx.strokeStyle='#2a4166'; ctx.beginPath(); ctx.arc(hx,hy,15,0,7); ctx.stroke();
+  ctx.lineWidth=1;
+  // torque arcs
+  const TMAX=1.5;
+  function arcTorque(r,T,col){
+    if(Math.abs(T)<0.005) return;
+    const d=clamp(Math.abs(T)/TMAX,0,1)*2.4;
+    const e=Math.PI/2-Math.sign(T)*d;
+    ctx.strokeStyle=col; ctx.lineWidth=4; ctx.lineCap='round';
+    ctx.beginPath();
+    ctx.arc(hx,hy,r,Math.PI/2,e, T>0);
+    ctx.stroke();
+    const tx=hx+r*Math.cos(e), ty=hy+r*Math.sin(e);
+    const tX=T>0?Math.sin(e):-Math.sin(e), tY=T>0?-Math.cos(e):Math.cos(e);
+    ctx.fillStyle=col;
+    ctx.beginPath(); ctx.moveTo(tx,ty);
+    ctx.lineTo(tx-tX*8+tY*4, ty-tY*8-tX*4);
+    ctx.lineTo(tx-tX*8-tY*4, ty-tY*8+tX*4);
+    ctx.closePath(); ctx.fill();
+  }
+  arcTorque(36,S.te,'#ff5252');        // control torque (electromagnetic)
+  arcTorque(48,S.tl,'#60a5fa');        // non-control torque (gravity+cog+fric+dist)
+  // arm
+  const nx=dirY, ny=-dirX;
+  const wBase=11, wTip=5;
+  const p1x=hx+nx*wBase, p1y=hy+ny*wBase;
+  const p2x=hx+dirX*armLen+nx*wTip, p2y=hy+dirY*armLen+ny*wTip;
+  const p3x=hx+dirX*armLen-nx*wTip, p3y=hy+dirY*armLen-ny*wTip;
+  const p4x=hx-nx*wBase, p4y=hy-ny*wBase;
+  const g=ctx.createLinearGradient(hx,hy,hx+dirX*armLen,hy+dirY*armLen);
+  g.addColorStop(0,'#93a7c4'); g.addColorStop(1,'#5b6b85');
+  ctx.fillStyle=g;
+  ctx.beginPath(); ctx.moveTo(p1x,p1y); ctx.lineTo(p2x,p2y); ctx.lineTo(p3x,p3y); ctx.lineTo(p4x,p4y); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle='#2a3d5e'; ctx.lineWidth=1.5; ctx.stroke();
+  // payload
+  const px=hx+dirX*armLen, py=hy+dirY*armLen, ps=17;
+  ctx.fillStyle='#fb923c'; ctx.fillRect(px-ps/2,py-ps/2,ps,ps);
+  ctx.strokeStyle='#7c2d12'; ctx.strokeRect(px-ps/2,py-ps/2,ps,ps);
+  ctx.fillStyle='#fff'; ctx.font='bold 9px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText('m',px,py);
+  // COM + gravity arrow
+  const cx=hx+dirX*armLen*0.55, cy=hy+dirY*armLen*0.55;
+  ctx.fillStyle='#fca5a5'; ctx.beginPath(); ctx.arc(cx,cy,3,0,7); ctx.fill();
+  ctx.strokeStyle='#60a5fa'; ctx.lineWidth=2;
+  const gLen=26+clamp(S.tgrav,0,1.2)*46;
+  ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx,cy+gLen); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx,cy+gLen); ctx.lineTo(cx-5,cy+gLen-8); ctx.lineTo(cx+5,cy+gLen-8); ctx.closePath(); ctx.fillStyle='#60a5fa'; ctx.fill();
+  // hub
+  ctx.fillStyle='#22344f'; ctx.beginPath(); ctx.arc(hx,hy,9,0,7); ctx.fill();
+  ctx.strokeStyle='#3b5a8c'; ctx.stroke();
+  // position reference marker
+  if(MODE==='pos'){ const tr=REF.th;
+    ctx.save(); ctx.strokeStyle='rgba(251,191,36,0.75)'; ctx.lineWidth=2; ctx.setLineDash([6,5]);
+    ctx.beginPath(); ctx.moveTo(hx,hy);
+    ctx.lineTo(hx+Math.sin(tr)*armLen, hy+Math.cos(tr)*armLen); ctx.stroke();
+    ctx.restore(); }
+  // angle arc
+  ctx.strokeStyle='rgba(255,255,255,0.35)'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.arc(hx,hy,58,Math.PI/2,Math.PI/2-th, th>0); ctx.stroke();
+  // labels
+  ctx.textAlign='left'; ctx.textBaseline='top';
+  ctx.font='11px ui-monospace,monospace';
+  ctx.fillStyle='#ff8f8f'; ctx.fillText('Te = '+fmt(S.te,2)+' N·m  (control)',12,10);
+  ctx.fillStyle='#93b7ee'; ctx.fillText('TL = '+fmt(S.tl,2)+' N·m  (non-control)',12,24);
+  ctx.fillStyle='#c9d8f0'; ctx.fillText('θm = '+fmt(S.th*180/Math.PI,1)+'°   ωm = '+fmt(S.wm*60/(2*Math.PI),0)+' rpm',12,38);
+  ctx.fillStyle='#55688c'; ctx.fillText('stator ring: phase current i_a/i_b/i_c',12,h-24);
+  if(S.lock){ ctx.fillStyle='#fbbf24'; ctx.fillText('🔒 rotor locked',12,h-12); }
+  else if(S.open){ ctx.fillStyle='#6f87ab'; ctx.fillText('○ terminals open (inverter off)',12,h-12); }
+  else { ctx.fillStyle='#4ade80'; ctx.fillText('● inverter energised',12,h-12); }
+}
+
+/* ---------- phasor diagram (abc + rotating dq frame) ---------- */
+const phasorO=prepCanvas($('#phasor'));
+function drawPhasor(){
+  const {ctx,w,h}=phasorO; if(!w||!h) return;
+  ctx.clearRect(0,0,w,h);
+  ctx.fillStyle='#0a1120'; ctx.fillRect(0,0,w,h);
+  const cx=w/2, cy=h*0.56;
+  const R=Math.min(w*0.42,h*0.44)-34;
+  const scl=R/C.Imax;
+  const P=(x,y)=>[cx+x,cy-y];
+  const the=mod2(M.pp*S.th);
+  // phase axes
+  const axes=[[1,0],[Math.cos(2*Math.PI/3),Math.sin(2*Math.PI/3)],[Math.cos(4*Math.PI/3),Math.sin(4*Math.PI/3)]];
+  ctx.lineWidth=1;
+  axes.forEach(a=>{ ctx.strokeStyle='rgba(90,120,170,0.22)';
+    ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx+a[0]*R,cy-a[1]*R); ctx.stroke(); });
+  // Imax circle
+  ctx.setLineDash([4,5]); ctx.strokeStyle='rgba(90,120,170,0.4)';
+  ctx.beginPath(); ctx.arc(cx,cy,R,0,7); ctx.stroke(); ctx.setLineDash([]);
+  // phase phasors
+  const abc=[lastABC.ia,lastABC.ib,lastABC.ic];
+  const cols=['#ff5252','#4caf50','#3d8bff'];
+  for(let i=0;i<3;i++){
+    const v=abc[i], a=axes[i];
+    const L=Math.abs(v)*scl;
+    const dir=v>=0?1:-1;
+    const ex=cx+a[0]*L*dir, ey=cy-a[1]*L*dir;
+    ctx.strokeStyle=cols[i]; ctx.lineWidth=2.5;
+    ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(ex,ey); ctx.stroke();
+    if(L>3){
+      const n=[-a[1],a[0]];
+      const bX=cx+a[0]*L*dir+n[0]*5*dir, bY=cy-a[1]*L*dir-n[1]*5*dir;
+      const cX=cx+a[0]*L*dir-n[0]*5*dir, cY=cy-a[1]*L*dir+n[1]*5*dir;
+      ctx.fillStyle=cols[i]; ctx.beginPath(); ctx.moveTo(ex,ey); ctx.lineTo(bX,bY); ctx.lineTo(cX,cY); ctx.closePath(); ctx.fill();
+    }
+  }
+  // resultant (literal vector sum = 3/2 · space vector)
+  const X=(lastABC.ia-0.5*lastABC.ib-0.5*lastABC.ic)*scl;
+  const Y=Math.sqrt(3)/2*(lastABC.ib-lastABC.ic)*scl;
+  let L=Math.hypot(X,Y), k=1;
+  if(L>R*1.42){ k=R*1.42/L; }
+  const [rx,ry]=P(X*k,Y*k);
+  ctx.strokeStyle='#e2ecff'; ctx.lineWidth=3;
+  ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(rx,ry); ctx.stroke();
+  ctx.fillStyle='#e2ecff'; ctx.beginPath(); ctx.arc(rx,ry,4,0,7); ctx.fill();
+  // rotating dq axes
+  const d=[Math.cos(the),Math.sin(the)], q=[-Math.sin(the),Math.cos(the)];
+  ctx.lineWidth=1.4; ctx.setLineDash([7,5]);
+  ctx.strokeStyle='rgba(245,158,11,0.85)'; ctx.beginPath(); ctx.moveTo(cx,cy);
+  ctx.lineTo(cx+d[0]*R*0.98,cy-d[1]*R*0.98); ctx.stroke();
+  ctx.strokeStyle='rgba(34,211,238,0.85)'; ctx.beginPath(); ctx.moveTo(cx,cy);
+  ctx.lineTo(cx+q[0]*R*0.98,cy-q[1]*R*0.98); ctx.stroke();
+  ctx.setLineDash([]);
+  // dq decomposition of the sum (segments ×3/2)
+  const dX=d[0]*1.5*S.id*scl, dY=-d[1]*1.5*S.id*scl;
+  const qX=q[0]*1.5*S.iq*scl, qY=-q[1]*1.5*S.iq*scl;
+  ctx.strokeStyle='#f59e0b'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx+dX,cy+dY); ctx.stroke();
+  ctx.strokeStyle='#22d3ee'; ctx.lineWidth=2.5;
+  ctx.beginPath(); ctx.moveTo(cx+dX,cy+dY); ctx.lineTo(cx+dX+qX,cy+dY+qY); ctx.stroke();
+  ctx.fillStyle='#22d3ee'; ctx.beginPath(); ctx.arc(cx+dX+qX,cy+dY+qY,3.5,0,7); ctx.fill();
+  // θe arc
+  ctx.strokeStyle='rgba(245,158,11,0.9)'; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.arc(cx,cy,14,0,-the, the>0); ctx.stroke();
+  // labels
+  ctx.font='11px ui-monospace,monospace';
+  ctx.textAlign='center'; ctx.textBaseline='top';
+  ctx.fillStyle='#f59e0b'; ctx.fillText('d',cx+d[0]*R*0.98+10,cy-d[1]*R*0.98-14);
+  ctx.fillStyle='#22d3ee'; ctx.fillText('q',cx+q[0]*R*0.98+8,cy-q[1]*R*0.98-14);
+  ctx.fillStyle='#e2ecff'; ctx.fillText('θe = '+fmt(the*180/Math.PI,0)+'°',cx+R*0.18,cy-26);
+  ctx.textAlign='left';
+  ctx.fillStyle='#f59e0b'; ctx.fillText('id = '+fmt(S.id,2)+' A',12,12);
+  ctx.fillStyle='#22d3ee'; ctx.fillText('iq = '+fmt(S.iq,2)+' A  (∝ control torque Te)',12,26);
+  ctx.fillStyle='#55688c'; ctx.fillText('I⃗ = phasor sum of ia+ib+ic · d/q frame rotates at ωe',12,h-24);
+  // legend
+  let lx=cx-R-8, ly=cy+R+10;
+  [['ia','#ff5252'],['ib','#4caf50'],['ic','#3d8bff']].forEach(([n,c])=>{
+    ctx.fillStyle=c; ctx.fillText(n,lx,ly); lx+=ctx.measureText(n).width+18; });
+}
+
+/* ---------- live FOC signal-flow chain ---------- */
+const NS='http://www.w3.org/2000/svg';
+function svgEl(tag,attrs){ const e=document.createElementNS(NS,tag); for(const k in attrs) e.setAttribute(k,attrs[k]); return e; }
+const flow=$('#flow');
+const fl={};
+(function buildFlow(){
+  const defs=svgEl('defs',{});
+  const mk=svgEl('marker',{id:'arr',viewBox:'0 0 10 10',refX:'9',refY:'5',markerWidth:'7',markerHeight:'7',orient:'auto'});
+  mk.appendChild(svgEl('path',{d:'M0,0 L10,5 L0,10 z',fill:'#3f5f8f'}));
+  defs.appendChild(mk); flow.appendChild(defs);
+  const boxes=[
+    [10,  'SENSING','i_a / i_b / i_c',['fl_ia','fl_ib','fl_ic']],
+    [158, 'CLARKE abc→αβ','i_α / i_β',['fl_ial','fl_ibe',null]],
+    [306, 'PARK αβ→dq','i_d / i_q',['fl_id','fl_iq',null]],
+    [454, 'PI + decoupling','v_d* / v_q*',['fl_vdc','fl_vqc','fl_sat']],
+    [602, 'PARK⁻¹ dq→αβ','v_α* / v_β*',['fl_val','fl_vbe',null]],
+    [750, 'SVPWM','d_a d_b d_c',['fl_da','fl_db','fl_dc']],
+    [898, 'VSI bridge','v_an v_bn v_cn',['fl_van','fl_vbn','fl_vcn']],
+    [1046,'PMSM + arm','θe · ωm · Te',['fl_we','fl_wm','fl_te']],
+  ];
+  const W=132, Y=44, H=64;
+  for(const [x,title,sub,ids] of boxes){
+    flow.appendChild(svgEl('rect',{x,y:Y,width:W,height:H,rx:8,fill:'#101b2e',stroke:'#26395a'}));
+    flow.appendChild(svgEl('text',{x:x+W/2,y:Y+16,'text-anchor':'middle',fill:'#6f87ab','font-size':'8.5','font-family':'ui-monospace,monospace',opacity:0.9})).textContent=title;
+    flow.appendChild(svgEl('text',{x:x+W/2,y:Y+32,'text-anchor':'middle',fill:'#55688c','font-size':'7.5','font-family':'ui-monospace,monospace'})).textContent=sub;
+    ids.forEach((id,i)=>{ if(!id) return;
+      const t=svgEl('text',{x:x+W/2,y:Y+46+i*14,'text-anchor':'middle',fill:'#dbe7ff','font-size':'10.5','font-family':'ui-monospace,monospace','font-weight':'600'});
+      t.textContent='…'; flow.appendChild(t); fl[id]=t; });
+  }
+  const ar=(x1,y1,x2,y2)=>{ flow.appendChild(svgEl('line',{x1,y1,x2,y2,stroke:'#3f5f8f','stroke-width':1.5,'marker-end':'url(#arr)'})); };
+  for(let i=0;i<boxes.length-1;i++) ar(boxes[i][0]+W, Y+H/2, boxes[i+1][0], Y+H/2);
+  // feedback (sensed currents) and rotor angle
+  flow.appendChild(svgEl('path',{d:`M ${1046+W/2} ${Y+H} L ${1046+W/2} 126 L ${10+W/2} 126 L ${10+W/2} ${Y+H}`,
+    fill:'none',stroke:'#2c4470',strokeWidth:1.5,'stroke-dasharray':'5 4'}));
+  flow.appendChild(svgEl('text',{x:600,y:141,'text-anchor':'middle',fill:'#55688c','font-size':'9','font-family':'ui-monospace,monospace'})).textContent='sensed i_a i_b i_c feedback';
+  flow.appendChild(svgEl('path',{d:`M ${1046+W/2} ${Y} L ${1046+W/2} 20 L ${306+W/2} 20 L ${306+W/2} ${Y}`,
+    fill:'none',stroke:'#5c4a17',strokeWidth:1.5,'stroke-dasharray':'5 4'}));
+  flow.appendChild(svgEl('text',{x:676,y:15,'text-anchor':'middle',fill:'#8a7a3d','font-size':'9','font-family':'ui-monospace,monospace'})).textContent='θe = pp·θm (rotor angle)';
+  flow.appendChild(svgEl('text',{x:454+W/2,y:Y-8,'text-anchor':'middle',fill:'#7d92b5','font-size':'9','font-family':'ui-monospace,monospace'})).textContent='refs: id* iq* ← (ω*, θ*)';
+})();
+function updateFlow(){
+  const ibe=(lastABC.ib-lastABC.ic)/Math.sqrt(3);
+  const va0=S.vdCmd*Math.cos(S.the)-S.vqCmd*Math.sin(S.the);
+  const vb0=S.vdCmd*Math.sin(S.the)+S.vqCmd*Math.cos(S.the);
+  const val=va0, vbe=-0.5*va0+Math.sqrt(3)/2*vb0;
+  const set=(id,t)=>{ if(fl[id]) fl[id].textContent=t; };
+  set('fl_ia','i_a = '+fmt(lastABC.ia)+' A');
+  set('fl_ib','i_b = '+fmt(lastABC.ib)+' A');
+  set('fl_ic','i_c = '+fmt(lastABC.ic)+' A');
+  set('fl_ial','i_α = '+fmt(lastABC.ia)+' A');
+  set('fl_ibe','i_β = '+fmt(ibe)+' A');
+  set('fl_id','i_d = '+fmt(S.id)+' A');
+  set('fl_iq','i_q = '+fmt(S.iq)+' A');
+  set('fl_vdc','v_d* = '+fmt(S.vdCmd)+' V');
+  set('fl_vqc','v_q* = '+fmt(S.vqCmd)+' V'+(S.sat?' ⚠sat':''));
+  set('fl_sat',S.sat?'⚠ voltage limit (circle)':'inside voltage circle');
+  set('fl_val','v_α* = '+fmt(val)+' V');
+  set('fl_vbe','v_β* = '+fmt(vbe)+' V');
+  set('fl_da','d_a = '+fmt(S.da*100,0)+' %');
+  set('fl_db','d_b = '+fmt(S.db*100,0)+' %');
+  set('fl_dc','d_c = '+fmt(S.dc*100,0)+' %');
+  set('fl_van','v_an = '+fmt(S.va)+' V');
+  set('fl_vbn','v_bn = '+fmt(S.vb)+' V');
+  set('fl_vcn','v_cn = '+fmt(S.vc)+' V');
+  set('fl_we','θe = '+fmt(mod2(M.pp*S.th)*180/Math.PI,0)+'°');
+  set('fl_wm','ωm = '+fmt(S.wm*60/(2*Math.PI),0)+' rpm');
+  set('fl_te','Te = '+fmt(S.te,2)+' N·m');
+}
+
+/* ---------- numeric telemetry chips ---------- */
+const stats=$('#stats');
+const chipDefs=[
+  ['t (s)',()=>S.t],['θm (°)',()=>S.th*180/Math.PI],['ωm (rpm)',()=>S.wm*60/(2*Math.PI)],
+  ['Te (N·m)',()=>S.te],['TL (N·m)',()=>S.tl],
+  ['ia (A)',()=>lastABC.ia],['ib (A)',()=>lastABC.ib],['ic (A)',()=>lastABC.ic],
+  ['id (A)',()=>S.id],['iq (A)',()=>S.iq],
+  ['|i_dq| (A)',()=>Math.hypot(S.id,S.iq)],['i_rms (A)',()=>rmsOf(['ia','ib','ic'])],
+  ['vd* (V)',()=>S.vdCmd],['vq* (V)',()=>S.vqCmd],
+  ['v_ab rms (V)',()=>rmsOfVab()],['duty max',()=>Math.max(S.da,S.db,S.dc)*100],
+  ['θe (°)',()=>mod2(M.pp*S.th)*180/Math.PI],
+];
+const chipEls=[];
+(function buildChips(){
+  const box=document.createElement('div'); box.style.display='contents';
+  chipDefs.forEach(([name])=>{
+    const c=document.createElement('div'); c.className='chip';
+    c.innerHTML=`<span class="lbl">${name}</span><b>—</b>`;
+    stats.appendChild(c); chipEls.push(c.querySelector('b'));
+  });
+})();
+function rmsOf(keys){
+  let s=0,n=0;
+  for(const k of keys){ const a=BU[k]; const m=Math.min(a.length,2000);
+    for(let i=a.length-m;i<a.length;i++){ s+=a[i]*a[i]; } n+=m; }
+  if(!n) return 0;
+  return Math.sqrt(s/n/keys.length)*Math.sqrt(3);
+}
+function rmsOfVab(){
+  const n=Math.min(BU.va.length,1000); if(!n) return 0;
+  let s=0; for(let i=BU.va.length-n;i<BU.va.length;i++){ const d=BU.va[i]-BU.vb[i]; s+=d*d; }
+  return Math.sqrt(s/n);
+}
+let statsN=0;
+function updateStats(){
+  if(++statsN%5) return;
+  chipDefs.forEach(([n,f],i)=>{ chipEls[i].textContent=fmt(f(),2); });
+}
+
+/* ---------- controls ---------- */
+const MODE_NAMES={idle:'Idle / open-circuit',vf:'V/Hz open-loop',cur:'Current (torque) loop',
+  spd:'Speed loop',pos:'Position loop',bemf:'Back-EMF test (script)',res:'Resistance test (script)'};
+const resultsDiv=document.createElement('div'); resultsDiv.id='results';
+let rpmHandle=null, degHandle=null;
+
+function buildControls(){
+  const s1=sec('Test mode');
+  const sel=document.createElement('select'); sel.style.cssText='width:100%;background:#132238;color:#c9d8f0;border:1px solid #2a4166;border-radius:6px;padding:5px;font-size:12px';
+  for(const [v,n] of Object.entries(MODE_NAMES)){
+    const o=document.createElement('option'); o.value=v; o.textContent=n; sel.appendChild(o);
+  }
+  sel.value=MODE; s1.appendChild(sel);
+  const paramsDiv=document.createElement('div'); paramsDiv.id='params'; s1.appendChild(paramsDiv);
+  s1.appendChild(resultsDiv);
+  sel.addEventListener('change',()=>{ MODE=sel.value; S.script=null; S.lock=false;
+    renderParams(); if(MODE!=='bemf'&&MODE!=='res') resultsDiv.innerHTML=''; });
+
+  const s2=sec('Motor & plant');
+  slider(s2,{label:'Rs (Ω)',min:.05,max:2,step:.01,val:M.Rs,fmt:v=>v.toFixed(2)+' Ω',onInput:v=>M.Rs=v});
+  slider(s2,{label:'Ld (mH)',min:.2,max:5,step:.05,val:M.Ld*1e3,fmt:v=>v.toFixed(2)+' mH',onInput:v=>M.Ld=v/1e3});
+  slider(s2,{label:'Lq (mH)',min:.2,max:5,step:.05,val:M.Lq*1e3,fmt:v=>v.toFixed(2)+' mH',onInput:v=>M.Lq=v/1e3});
+  slider(s2,{label:'λm (mWb)',min:5,max:120,step:1,val:M.lam*1e3,fmt:v=>v.toFixed(0)+' mWb',onInput:v=>M.lam=v/1e3});
+  slider(s2,{label:'pole pairs',min:1,max:8,step:1,val:M.pp,fmt:v=>v.toFixed(0),onInput:v=>M.pp=v});
+  slider(s2,{label:'J (g·m²)',min:1,max:50,step:.5,val:M.J*1e3,fmt:v=>v.toFixed(1)+' g·m²',onInput:v=>M.J=v/1e3});
+  slider(s2,{label:'B (mN·m·s)',min:0,max:5,step:.05,val:M.B*1e3,fmt:v=>v.toFixed(2)+' mN·m·s',onInput:v=>M.B=v/1e3});
+  slider(s2,{label:'m·g·Lc (N·m)',min:0,max:1.5,step:.005,val:M.mgl,fmt:v=>v.toFixed(3)+' N·m',onInput:v=>M.mgl=v});
+  slider(s2,{label:'cogging (N·m)',min:0,max:.2,step:.005,val:M.cog,fmt:v=>v.toFixed(3)+' N·m',onInput:v=>M.cog=v});
+  slider(s2,{label:'coulomb Tc',min:0,max:.2,step:.005,val:M.Tc,fmt:v=>v.toFixed(3)+' N·m',onInput:v=>M.Tc=v});
+  slider(s2,{label:'Vdc (V)',min:12,max:96,step:1,val:M.Vdc,fmt:v=>v.toFixed(0)+' V',onInput:v=>M.Vdc=v});
+  slider(s2,{label:'fPWM (kHz)',min:2,max:20,step:1,val:M.fPWM/1e3,fmt:v=>v.toFixed(0)+' kHz',onInput:v=>{M.fPWM=v*1e3; TICK=1/M.fPWM;}});
+
+  const s3=sec('FOC cascade gains');
+  slider(s3,{label:'Kp i (Ω)',min:.1,max:5,step:.05,val:C.Kpi,fmt:v=>v.toFixed(2)+' Ω',onInput:v=>C.Kpi=v});
+  slider(s3,{label:'Ki i (Ω/s)',min:10,max:5000,log:true,val:C.Kii,fmt:v=>fmt(v,0)+' Ω/s',onInput:v=>C.Kii=v});
+  slider(s3,{label:'Kp ω',min:.02,max:2,step:.01,val:C.Kps,fmt:v=>v.toFixed(2),onInput:v=>C.Kps=v});
+  slider(s3,{label:'Ki ω',min:.2,max:50,step:.1,val:C.Kis,fmt:v=>v.toFixed(1),onInput:v=>C.Kis=v});
+  slider(s3,{label:'Kp θ',min:1,max:30,step:.5,val:C.Kpp,fmt:v=>v.toFixed(1),onInput:v=>C.Kpp=v});
+  slider(s3,{label:'Kp θ′ (damp)',min:0,max:10,step:.1,val:C.Kpd,fmt:v=>v.toFixed(1),onInput:v=>C.Kpd=v});
+  slider(s3,{label:'Imax (A)',min:1,max:12,step:.1,val:C.Imax,fmt:v=>v.toFixed(1)+' A',onInput:v=>C.Imax=v});
+  slider(s3,{label:'ωmax (rad/s)',min:10,max:120,step:2,val:C.wmax,fmt:v=>v.toFixed(0)+' rad/s',onInput:v=>C.wmax=v});
+  chk(s3,'dq decoupling feed-forward',C.decouple,v=>C.decouple=v);
+
+  const s4=sec('Load & disturbance');
+  slider(s4,{label:'Tdist (N·m)',min:0,max:1,step:.01,val:P.tdist,fmt:v=>v.toFixed(2)+' N·m',onInput:v=>P.tdist=v});
+  const b1=document.createElement('div'); b1.className='btns'; s4.appendChild(b1);
+  btn(b1,'Pulse load 0.3 s',()=>{P.distPulseEnd=S.t+0.3;});
+  chk(s4,'hold load torque',P.distHold,v=>P.distHold=v);
+  chk(s4,'lock rotor (θm=0)',P.lock,v=>P.lock=v);
+
+  const s5=sec('Simulation');
+  slider(s5,{label:'time scale',min:.25,max:8,step:.25,val:P.rate,fmt:v=>'×'+v.toFixed(2),onInput:v=>P.rate=v});
+
+  const s6=sec('About');
+  const det=document.createElement('details'); s6.appendChild(det);
+  const sum=document.createElement('summary'); sum.textContent='model equations & conventions'; det.appendChild(sum);
+  const pre=document.createElement('pre'); pre.textContent=
+`d i_d/dt = (v_d − Rs·i_d + ωe·Lq·i_q)/Ld
+d i_q/dt = (v_q − Rs·i_q − ωe·(Ld·i_d + λm))/Lq
+Te = 1.5·pp·(λm·i_q + (Ld−Lq)·i_d·i_q)      [control torque]
+J·d ωm/dt = Te − B·ωm − m·g·Lc·sin θm − Tcog(6θe) − Tcoul − Tdist
+TL = gravity + cogging + coulomb + disturbance   [non-control torque]
+θe = pp·θm · RK4 @ 2 µs · SVPWM ZOH @ fPWM
+Clarke/Park amplitude-invariant · star-connected motor
+anti-windup: back-calculation on PI integrators · voltage circle |v| ≤ Vdc/√3`;
+  det.appendChild(pre);
+}
+
+function renderParams(){
+  const d=$('#params'); d.innerHTML='';
+  if(MODE==='idle'){
+    hint(d,'Inverter off, terminals open. The arm falls and swings under gravity + friction — pure non-control torque. Watch the back-EMF appear on the voltage scope as it moves.');
+  } else if(MODE==='vf'){
+    slider(d,{label:'Vq (V)',min:0,max:14,step:.1,val:P.vfV,fmt:v=>v.toFixed(1)+' V',onInput:v=>P.vfV=v});
+    slider(d,{label:'f electrical',min:.5,max:30,step:.5,val:P.vfF,fmt:v=>v.toFixed(1)+' Hz',onInput:v=>P.vfF=v});
+    hint(d,'Classic V/Hz open-loop start: watch pull-in oscillation and loss of sync if V is too low. Try the lock-rotor checkbox for a locked-rotor test.');
+  } else if(MODE==='cur'){
+    slider(d,{label:'iq* (A)',min:-8,max:8,step:.1,val:P.iqRef,fmt:v=>v.toFixed(1)+' A',onInput:v=>P.iqRef=v});
+    slider(d,{label:'id* (A)',min:-4,max:4,step:.1,val:P.idRef,fmt:v=>v.toFixed(1)+' A',onInput:v=>P.idRef=v});
+    slider(d,{label:'pulse iq (A)',min:0,max:8,step:.1,val:P.iqStepHi,fmt:v=>v.toFixed(1)+' A',onInput:v=>P.iqStepHi=v});
+    const b=document.createElement('div'); b.className='btns'; d.appendChild(b);
+    btn(b,'Pulse iq* 0.25 s',()=>{P.stepEnd=S.t+0.25;});
+    hint(d,'Torque step test. Te = 1.5·pp·λm·iq, so the torque constant check is Te/iq ≈ '+fmt(1.5*M.pp*M.lam,2)+' N·m/A. Lock the rotor to remove dynamics.');
+  } else if(MODE==='spd'){
+    rpmHandle=slider(d,{label:'ω* (rpm)',min:-600,max:600,step:5,val:P.rpm,fmt:v=>v.toFixed(0)+' rpm',onInput:v=>P.rpm=v});
+    const b=document.createElement('div'); b.className='btns'; d.appendChild(b);
+    btn(b,'+60 rpm',()=>{P.rpm=clamp(P.rpm+60,-600,600); rpmHandle.set(P.rpm);});
+    btn(b,'−60 rpm',()=>{P.rpm=clamp(P.rpm-60,-600,600); rpmHandle.set(P.rpm);});
+    btn(b,'Pulse load 0.3 s',()=>{P.distPulseEnd=S.t+0.3;});
+    hint(d,'Speed step / regulation test. Inject a load pulse and watch droop + recovery of the speed loop.');
+  } else if(MODE==='pos'){
+    degHandle=slider(d,{label:'θ* (°)',min:-180,max:180,step:1,val:P.thDeg,fmt:v=>v.toFixed(0)+'°',onInput:v=>P.thDeg=v});
+    const b=document.createElement('div'); b.className='btns'; d.appendChild(b);
+    btn(b,'+90°',()=>{P.thDeg=clamp(P.thDeg+90,-180,180); degHandle.set(P.thDeg);});
+    btn(b,'−90°',()=>{P.thDeg=clamp(P.thDeg-90,-180,180); degHandle.set(P.thDeg);});
+    btn(b,'home 0°',()=>{P.thDeg=0; degHandle.set(P.thDeg);});
+    btn(b,'Pulse load 0.3 s',()=>{P.distPulseEnd=S.t+0.3;});
+    hint(d,'Position step test: the arm lifts against gravity and holds. At rest, control torque exactly balances the non-control gravity torque. Near θ* = ±180° the plant is an inverted pendulum — the damping term Kp θ′ is what keeps it stable there (try setting it to 0 and watch the top-hold go unstable).');
+  } else if(MODE==='bemf'){
+    slider(d,{label:'f target (Hz)',min:5,max:40,step:.5,val:P.bemfF,fmt:v=>v.toFixed(1)+' Hz',onInput:v=>P.bemfF=v});
+    const b=document.createElement('div'); b.className='btns'; d.appendChild(b);
+    btn(b,'▶ Run back-EMF test',startBemf,'primary');
+    hint(d,'Classic Ke/λm measurement: open-loop spin-up → hold speed → open the terminals → measure line-line EMF. λm = Vll_rms·√2/(√3·ωe).');
+  } else if(MODE==='res'){
+    slider(d,{label:'Vstep (V)',min:.5,max:6,step:.1,val:P.resV,fmt:v=>v.toFixed(1)+' V',onInput:v=>P.resV=v});
+    const b=document.createElement('div'); b.className='btns'; d.appendChild(b);
+    btn(b,'▶ Run resistance test',startRes,'primary');
+    hint(d,'Classic locked-rotor DC step: vd step on the d-axis, measure steady-state current (Rs = V/I) and the 63.2% rise time (L = Rs·τ).');
+  }
+}
+
+function startBemf(){ uiReset(); S.script=null;
+  resultsDiv.innerHTML='<div class="res">running… (spin-up → hold → open-circuit measure)</div>';
+  setRunning(true); }
+function startRes(){ uiReset(); S.script=null;
+  resultsDiv.innerHTML='<div class="res">running… (locked rotor, DC step)</div>';
+  setRunning(true); }
+
+function finishBemf(r){
+  const err=(r.lamEst-M.lam)/M.lam*100;
+  resultsDiv.innerHTML='<div class="res"><b>Back-EMF test results</b><table>'+
+    '<tr><td>open-circuit V_ll (rms)</td><td>'+fmt(r.vll,2)+' V</td></tr>'+
+    '<tr><td>shaft speed</td><td>'+fmt(r.rpm,0)+' rpm</td></tr>'+
+    '<tr><td>electrical ωe</td><td>'+fmt(r.we,1)+' rad/s</td></tr>'+
+    '<tr><td>λm estimated</td><td>'+fmt(r.lamEst,4)+' Wb</td></tr>'+
+    '<tr><td>λm true</td><td>'+fmt(M.lam,4)+' Wb</td></tr>'+
+    '<tr><td>Ke = λm·pp</td><td>'+fmt(r.lamEst*M.pp,3)+' V/(rad/s)</td></tr>'+
+    '</table><div class="'+(Math.abs(err)<5?'ok':'err')+'">error '+(err>=0?'+':'')+err.toFixed(1)+' %</div></div>';
+}
+function finishRes(r){
+  const eR=(r.RsEst-M.Rs)/M.Rs*100, eL=(r.Lest-M.Ld)/M.Ld*100;
+  resultsDiv.innerHTML='<div class="res"><b>Resistance test results</b><table>'+
+    '<tr><td>DC step voltage</td><td>'+fmt(P.resV,2)+' V</td></tr>'+
+    '<tr><td>steady-state id</td><td>'+fmt(r.idss,2)+' A</td></tr>'+
+    '<tr><td>Rs estimated</td><td>'+fmt(r.RsEst,3)+' Ω</td></tr>'+
+    '<tr><td>Rs true</td><td>'+fmt(M.Rs,3)+' Ω</td></tr>'+
+    '<tr><td>63.2% rise time τ</td><td>'+fmt(r.tau*1e3,2)+' ms</td></tr>'+
+    '<tr><td>L estimated (Rs·τ)</td><td>'+fmt(r.Lest*1e3,2)+' mH</td></tr>'+
+    '<tr><td>L true</td><td>'+fmt(M.Ld*1e3,2)+' mH</td></tr>'+
+    '<tr><td>R line-line (2Rs)</td><td>'+fmt(r.Rll,3)+' Ω</td></tr>'+
+    '</table><div class="'+(Math.abs(eR)<5?'ok':'err')+'">Rs error '+(eR>=0?'+':'')+eR.toFixed(1)+' %</div>'+
+    '<div class="'+(Math.abs(eL)<10?'ok':'err')+'">L error '+(eL>=0?'+':'')+eL.toFixed(1)+' %</div></div>';
+}
+
+/* ---------- run / pause / reset ---------- */
+let running=true;
+const runBtn=$('#runBtn');
+function setRunning(v){ running=v; runBtn.textContent=v?'⏸ Pause':'▶ Run'; }
+runBtn.addEventListener('click',()=>setRunning(!running));
+function uiReset(){ resetSim(); scopes.forEach(s=>s.clear()); }
+$('#rstBtn').addEventListener('click',()=>{ uiReset(); setRunning(true); });
+
+/* ---------- status ---------- */
+const statusEl=$('#status'), perfEl=$('#perf');
+let effRate=1, lastSimT=0;
+function updateStatus(dtWall){
+  if(dtWall>0){ effRate=0.92*effRate+0.08*((S.t-lastSimT)/dtWall); lastSimT=S.t; }
+  statusEl.textContent='['+MODE_NAMES[MODE]+']  '+S.status;
+  perfEl.innerHTML='t = '+fmt(S.t,2)+' s&nbsp;·&nbsp;realtime ×'+fmt(effRate,2)+
+    '&nbsp;·&nbsp;'+(S.sat?'<span style="color:#f87171">⚠ V saturating</span>':'V ok')+
+    '&nbsp;·&nbsp;'+(S.open?'<span style="color:#6f87ab">○ open</span>':'<span style="color:#4ade80">● PWM</span>');
+}
+
+/* ---------- main loop ---------- */
+let last=performance.now(), frm=0;
+function frame(now){
+  const dtWall=clamp((now-last)/1000,0.001,0.05); last=now;
+  if(running){
+    let steps=Math.round(dtWall/DT*P.rate);
+    if(steps>60000) steps=60000;
+    runSteps(steps);
+  }
+  drawArm(); drawPhasor();
+  scopes.forEach(s=>s.draw());
+  if(++frm%2===0) updateFlow();
+  updateStats();
+  updateStatus(dtWall);
+  requestAnimationFrame(frame);
+}
+
+/* init */
+buildControls();
+renderParams();
+uiReset();
+setRunning(true);
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
