@@ -44,7 +44,158 @@ for every drive. Full derivations live in `notebooks/harmonic_drive.ipynb` and
 
 ---
 
-## 2. The insights, per mechanism
+## 2. Reading the six numbers
+
+What each of the six dimensionless groups means, where its value comes from, and where it
+shows up. These six are the *entire* drive as the load experiences it — two drives landing
+on the same six are indistinguishable to the arm.
+
+### 1 · Π_J = N²J_m / J_l — reflected inertia ratio
+
+**What it is.** Seen from the output side, the rotor does not feel like `J_m`; it feels
+like `N²J_m`, because the motor spins N times faster (its kinetic energy is
+`½J_m(N·ω_out)² = ½(N²J_m)ω_out²`). Π_J is how much the motor — through the ratio —
+outweighs the arm's own inertia.
+
+**Where the value comes from.** `N` is a counting argument (100 vs 30); `J_m` is the
+catalog rotor value; `J_l` is arm geometry (point mass `mL²` + rod `mL²/3`). The drive's
+*own* inertia is added on top (harmonic: flexspline + `N²·J_wg` ≈ 0.014 kg·m²; cycloidal:
+`N²·m_d·e²` orbit term + cam ≈ 0.004 kg·m² — both small next to the motor's 1.2 and
+0.108 kg·m²).
+
+**Where it bites.** Two places, both invisible on a spec sheet:
+- **T4 impact** — the motor contributes `Π_J/(1+Π_J)` of the momentum arriving at the
+  wall: 96% (harmonic), 69% (cycloidal), 15% (capstan). It *is* the impact test.
+- **T5** — the resonance/antiresonance separation is exactly `√(1 + 1/Π_J)`: 1.02
+  (harmonic), 1.20 (cycloidal), 2.57 (capstan). With Π_J ≫ 1 the two features collapse
+  and the usable control window closes.
+
+This is the dominant difference between the drives — two orders of magnitude — and it
+follows entirely from `N²`.
+
+### 2 · Ω_n = √(K_out / mgL) — stiffness, in plant units
+
+**What it is.** The drive's torsional spring constant `K_out`, normalized by the plant's
+torque scale: stiffness in units of "gravity loads per radian". Ω_n is also the frequency
+(in plant time units) at which the arm would bounce on the drive's spring with the motor
+locked — the drive's antiresonance, the notch a controller cannot push through.
+
+**Where the value comes from.** `K_out` is the biggest derived quantity in each model,
+and the physics differs per mechanism:
+
+- **harmonic** — two *exact* thin-tube (Bredt) torsion terms in series:
+  `K_cup = 2πGr³t/L`, `K_cone = 4πGt·sinα/(1/a²−1/b²)`. Sized to the arm (thinnest cup
+  that survives 2× gravity) → 15.1 kN·m/rad; a size-typical 0.5 mm cup → 42 kN·m/rad.
+- **cycloidal** — output pins as cantilevers in bending, `n·3EI/L³·R_out²`, in series
+  with the pin-ring Hertzian line contact. Sized to the *control floor* (below) →
+  8.3 kN·m/rad.
+- **capstan** (reference) — `2(EA/L)R²` from the cable → 4.5 kN·m/rad.
+
+Dividing by `mgL = 1.69 N·m` and taking the square root gives 94.4, 69.9, 51.8.
+
+**Where it bites.** T5's antiresonance frequency (`√(K/J_l)`); T2's tracking stiffness;
+and — for the cycloidal — *stability itself*: with the fixed controller rule the
+two-inertia loop goes unstable below `Ω_n ≈ 68` (a Routh condition, derived live in the
+cycloidal notebook). Each mechanism pays for stiffness differently: cup wall thickness
+(harmonic), pin radius to the fourth power (cycloidal), cable EA and radii (capstan).
+
+### 3 · ζ_d — structural damping ratio
+
+**What it is.** How strongly the drive's own internal damping quenches the two-inertia
+oscillation mode: `ζ_d = C/(2√(K·J_ref))`, normalized to critical for that mode.
+
+**Where the value comes from.** Honestly: it is the one *parameter* in the table, not a
+derived quantity — 0.02 for all three drives, a class-typical figure. What is derived is
+the convention: `C = 2ζ_d√(K·J_ref)` with a consistent reference inertia, so the ζ you ask
+for is the ζ you report (getting this inconsistent silently hands one drive extra damping
+in every transient test). Note that the load-proportional friction of §η does *not* do
+this job: Coulomb-type loss is a poor damper of fast modes, which is exactly why ζ_d alone
+sets the cycloidal's stability floor.
+
+**Where it bites.** The cycloidal's Routh bound (`Ω_n ≈ 68` at ζ_d = 0.02); T4's ring-down;
+T5's resonance peak height.
+
+### 4 · η_f → η_b — forward and backward efficiency, one knob
+
+**What it is.** η_f is efficiency driving the load; η_b is efficiency when the load drives
+the motor — backdrivability. The bench's structural rule: dissipation proportional to
+transmitted torque makes `η_b = 2 − 1/η_f`, so the two are locked together and η_f = 0.5 is
+*exactly* self-locking. Backdrivability is an output of the model; you cannot tune it to
+the answer you want.
+
+**Where the value comes from.** The loss coefficient `c = 1/η_f − 1` is derived from each
+mechanism's sliding and rolling:
+
+- **harmonic** — wave-generator bearing under mesh load
+  (`μ_wg·r_b·N/r_p·(1+tanα)`) + teeth sliding through the preload each revolution
+  (`N·μ_t·4w₀/(2π·r_p·tanα)`) → c = 0.29 → **η_f = 0.78, η_b = 0.71**. Plus a large
+  *load-independent* no-load drag (~0.94 N·m) from the preloaded WG — the "preload tax".
+- **cycloidal** — disc rolling over the pins (`μ_roll·(4/π)(1+r_pin/r_p)`) + eccentric
+  bearing (`μ_b·(4/π)·r_b·N/r_p`) + output pins sliding through the eccentricity per
+  output revolution (`μ_out·e/R_out`) → c = 0.045 → **η_f = 0.957, η_b = 0.955**, with
+  negligible no-load drag (0.06 N·m).
+- **capstan** (reference) — mostly *preload-driven*, load-independent bending hysteresis
+  (`N·μ_bend·d·T_p`) → η climbs steeply with load.
+
+The **shape** matters as much as the value: preload-dominated drives (capstan, then
+harmonic) are inefficient at light load and recover as load rises; the cycloidal's curve
+is flat and high from the start.
+
+**Where it bites.** T3's breakaway torque (harmonic 2.05 mgL open, 5.89 shorted;
+cycloidal 0.48/1.22); T2's energy lost per cycle (harmonic 3.23 mgL vs cycloidal 0.26).
+
+### 5 · τ̂_max = τ_max / mgL — torque margin
+
+**What it is.** The drive's rating in units of the arm's worst-case gravity load. 1.0
+means "can just hold the arm horizontal"; below 1.0 the bench flags the config
+infeasible. Above ~2, the margin above the load is deliberate steel — and *why* it is
+there differs per drive, which is itself a finding.
+
+**Where the value comes from.**
+
+- **harmonic** — cup shear at the cone junction: `τ_max = 2π·r_cup²·t·τ_allow` with
+  `τ_allow = 0.577·σ_allow/sf` (von Mises; σ_allow is a fatigue surrogate, sf = 3).
+  Sized for 2× the load → 15.6 N·m → τ̂_max = 9.2.
+- **cycloidal** — the smaller of output-pin bending
+  (`πr³σ/(4L·sf)·n·R_out`) and pin-ring Hertz line contact
+  (`2πLR*(σ/sf)²/E*` → `4τ/(z_p·r_p)`). Sized for 2× the load *plus* the control floor
+  → 13.6 N·m → τ̂_max = 8.1. The margin between 2 and 8.1 is stiffness-for-control,
+  not strength — the headline cycloidal finding.
+- **capstan** (reference) — the smaller of Euler-Eytelwein slip
+  (`2T_p·r·tanh(μβ/2)`) and cable strength → 2.0.
+
+**Where it bites.** T4's `peak_over_rating` — the geared drives transmit 43× and 12×
+their ratings on impact while the capstan is physically capped at 1.0× (it slips); and
+`cfg.feasibility()`'s hold-the-arm check.
+
+### 6 · e(·) — kinematic error, a function with a signature
+
+**What it is.** The difference between commanded and delivered angle,
+`θ_out = θ_m/N + e(θ_m)`. It is a *function*, not a scalar — each technology has a
+signature frequency content — and the table quotes its amplitude in arcmin.
+
+**Where the value comes from.** An ideal harmonic and an ideal cycloidal both have
+`e = 0`: their ratios are counting arguments over conjugate profiles. All measured
+ripple therefore **enters through manufacture**, and each drive's model derives it from
+one or two tolerances:
+
+- **harmonic** — cam runout Δe displaces the two engagement zones; first-order angular
+  error is the runout over the pitch radius: `e = (Δe/r_p)·sin(2N·θ_m)` — 2 cycles per
+  input revolution. 5 μm runout → 0.78′.
+- **cycloidal** — eccentricity error repeating once per input revolution
+  (`Δe_ecc/r_p`) *plus* pin-pitch error at the pin-passing frequency
+  (`Δp/(2r_p)·sin(z_p·θ_out)`). Together 1.15′.
+- **capstan** — ~0: no periodic mesh exists.
+
+**Why the function matters, not just the amplitude.** The *derivative* `de/dθ` enters
+the velocity map — the `(1 + de/dθ)` torque transformation at the motor port — so ripple
+also ripples velocity (harmonic: ±4.6% of output speed). It shows up in T1/T2 as
+position ripple at the signature frequency, and it is the term that broke energy
+conservation until the integrator carried it correctly.
+
+---
+
+## 3. The insights, per mechanism
 
 ### Harmonic — precision bought with inertia and drag
 
@@ -125,7 +276,7 @@ is kept, and something real would break first (no failure model — see below).
 
 ---
 
-## 3. Where each wins
+## 4. Where each wins
 
 | choose the... | when you need... | and accept... |
 |---|---|---|
@@ -143,7 +294,7 @@ is kept, and something real would break first (no failure model — see below).
 
 ---
 
-## 4. Caveats that qualify every number above
+## 5. Caveats that qualify every number above
 
 1. **No failure model.** T4 reports 43× and 12× rating without complaint; in reality
    something breaks first. Read the impact rows as *relative*, not absolute.
